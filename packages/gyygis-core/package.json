@@ -1,0 +1,23 @@
+{
+  "name": "@gyygis/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "hyparquet": "^1.18.0",
+    "hyparquet-compressors": "^1.0.0",
+    "ol": "^10.6.1",
+    "maplibre-gl": "^5.22.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.8.3",
+    "vite": "^6.2.6"
+  }
+}

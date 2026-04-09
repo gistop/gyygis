@@ -1,0 +1,9 @@
+{
+  "name": "gyygis",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:core": "pnpm -C packages/gyygis-core dev",
+    "build:core": "pnpm -C packages/gyygis-core build"
+  }
+}
