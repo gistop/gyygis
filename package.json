@@ -6,6 +6,9 @@
     "dev:core": "pnpm -C packages/gyygis-core dev",
     "build:core": "pnpm -C packages/gyygis-core build",
     "dev:admin": "pnpm -C packages/gyygis-admin dev",
-    "build:admin": "pnpm -C packages/gyygis-admin build"
+    "build:admin": "pnpm -C packages/gyygis-admin build",
+    "dev:server": "pnpm -C packages/gyygis-server dev",
+    "build:server": "pnpm -C packages/gyygis-server build",
+    "start:server": "pnpm -C packages/gyygis-server start"
   }
 }

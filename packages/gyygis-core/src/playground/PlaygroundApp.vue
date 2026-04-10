@@ -7,13 +7,17 @@
       <button class="tab" type="button" :data-active="demo === 'gpq'" @click="demo = 'gpq'">
         GeoParquet Demo
       </button>
+      <button class="tab" type="button" :data-active="demo === 'tianditu'" @click="demo = 'tianditu'">
+        天地图代理
+      </button>
       <div class="spacer"></div>
       <div class="hint">gyygis-core playground</div>
     </div>
 
     <div class="stage">
       <CogLayerDemo v-if="demo === 'cog'" />
-      <GpqLayerDemo v-else />
+      <GpqLayerDemo v-else-if="demo === 'gpq'" />
+      <TiandituProxyDemo v-else />
     </div>
   </div>
 </template>
@@ -22,8 +26,9 @@
 import { ref } from "vue";
 import CogLayerDemo from "./CogLayerDemo.vue";
 import GpqLayerDemo from "./GpqLayerDemo.vue";
+import TiandituProxyDemo from "./TiandituProxyDemo.vue";
 
-const demo = ref<"cog" | "gpq">("cog");
+const demo = ref<"cog" | "gpq" | "tianditu">("cog");
 </script>
 
 <style scoped>
