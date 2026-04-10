@@ -23,6 +23,9 @@ lerna-debug.log*
 dist/
 dist-ssr/
 build/
+# pure-admin-thin：此处的 build/ 是 Vite 配置脚本（plugins / optimize / utils），不是通用构建产物目录
+!packages/gyygis-admin/build/
+!packages/gyygis-admin/build/**
 out/
 .next/
 .nuxt/
