@@ -63,6 +63,8 @@ panel:
 menus:
   pureHome: 首页
   pureLogin: 登录
+  pureData: 数据
+  pureFunction: 功能
   pureAbnormal: 异常页面
   purePageNotFound: "404"
   pureAccessDenied: "403"

@@ -63,6 +63,8 @@ panel:
 menus:
   pureHome: Home
   pureLogin: Login
+  pureData: Data
+  pureFunction: Features
   pureAbnormal: Abnormal Page
   purePageNotFound: "404"
   pureAccessDenied: "403"
