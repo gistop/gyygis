@@ -33,4 +33,9 @@ pnpm dev:core
 
 # Admin frontend
 pnpm dev:admin
+
+# User-facing frontend (Vue 3 + Vite; lives in packages/gyygis-view)
+pnpm dev:view
 ```
+
+The user app defaults to port **5176** and proxies `/api` to the backend (see `packages/gyygis-view/.env.development`). Production build: `pnpm build:view`.
