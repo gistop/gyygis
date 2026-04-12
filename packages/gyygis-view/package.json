@@ -1,0 +1,30 @@
+{
+  "name": "gyygis-view",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit --skipLibCheck"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "dockview-core": "^5.2.0",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.23",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vue-tsc": "^3.1.2"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.13.0",
+    "pnpm": ">=9"
+  }
+}

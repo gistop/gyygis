@@ -9,6 +9,8 @@
     "build:admin": "pnpm -C packages/gyygis-admin build",
     "dev:server": "pnpm -C packages/gyygis-server dev",
     "build:server": "pnpm -C packages/gyygis-server build",
-    "start:server": "pnpm -C packages/gyygis-server start"
+    "start:server": "pnpm -C packages/gyygis-server start",
+    "dev:view": "pnpm -C packages/gyygis-view dev",
+    "build:view": "pnpm -C packages/gyygis-view build"
   }
 }
