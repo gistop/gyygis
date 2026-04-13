@@ -1,0 +1,20 @@
+# 构建上下文：仓库根
+FROM node:20-alpine AS build-stage
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/gyygis-admin/package.json packages/gyygis-admin/
+COPY packages/gyygis-core/package.json packages/gyygis-core/
+COPY packages/gyygis-server/package.json packages/gyygis-server/
+COPY packages/gyygis-view/package.json packages/gyygis-view/
+
+RUN pnpm install --frozen-lockfile
+
+COPY packages/gyygis-view packages/gyygis-view
+RUN pnpm --filter gyygis-view build
+
+FROM nginx:stable-alpine AS production-stage
+COPY --from=build-stage /app/packages/gyygis-view/dist /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

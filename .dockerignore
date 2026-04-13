@@ -1,0 +1,15 @@
+.git
+.gitignore
+**/.DS_Store
+**/node_modules
+**/dist
+**/.vite
+**/.turbo
+**/.eslintcache
+**/coverage
+**/*.log
+.cursor
+packages/gyygis-admin/node_modules
+packages/gyygis-core/node_modules
+packages/gyygis-server/node_modules
+packages/gyygis-view/node_modules

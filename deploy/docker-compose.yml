@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ../packages/gyygis-admin
+      dockerfile: Dockerfile
+    ports:
+      - "${ADMIN_PORT:-8081}:80"
+    restart: unless-stopped
+
+  view:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.view
+    ports:
+      - "${VIEW_PORT:-8082}:80"
+    restart: unless-stopped
+
+  core:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.core
+    ports:
+      - "${CORE_PORT:-8083}:80"
+    restart: unless-stopped

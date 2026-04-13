@@ -1,0 +1,25 @@
+# 构建上下文：仓库根（见 docker-compose.yml 中 context: ..）
+FROM node:20-alpine AS builder
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/gyygis-admin/package.json packages/gyygis-admin/
+COPY packages/gyygis-core/package.json packages/gyygis-core/
+COPY packages/gyygis-server/package.json packages/gyygis-server/
+COPY packages/gyygis-view/package.json packages/gyygis-view/
+
+RUN pnpm install --frozen-lockfile
+
+COPY packages/gyygis-server/tsconfig.json packages/gyygis-server/
+COPY packages/gyygis-server/src packages/gyygis-server/src
+
+RUN pnpm --filter @gyygis/server build
+RUN pnpm --filter @gyygis/server deploy --prod /out/server
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /out/server/ ./
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
