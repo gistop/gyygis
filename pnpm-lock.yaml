@@ -325,6 +325,9 @@ importers:
       dockview-core:
         specifier: ^5.2.0
         version: 5.2.0
+      dockview-vue:
+        specifier: ^5.2.0
+        version: 5.2.0(vue@3.5.32(typescript@5.9.3))
       pinia:
         specifier: ^3.0.3
         version: 3.0.4(typescript@5.9.3)(vue@3.5.32(typescript@5.9.3))
@@ -2436,6 +2439,11 @@ packages:
 
   dockview-core@5.2.0:
     resolution: {integrity: sha512-Gib8yhK2Ng7w47ASvbUZ7GdhBYbeXEflbIDxf/vobdQBMrN/QXmPaouSsSSkEx5YH0N8ap8GYljfvqjug7h5Fg==}
+
+  dockview-vue@5.2.0:
+    resolution: {integrity: sha512-fkXLYHPFaCUmpWT30SRHzoe9yAfo1r0ia0BCm6WWH21gFzQXkVb75dhjHmzVvqALIdJcafE+E//RE0LG56qIzQ==}
+    peerDependencies:
+      vue: ^3.4.0
 
   dom-serializer@2.0.0:
     resolution: {integrity: sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==}
@@ -7028,6 +7036,11 @@ snapshots:
       path-type: 4.0.0
 
   dockview-core@5.2.0: {}
+
+  dockview-vue@5.2.0(vue@3.5.32(typescript@5.9.3)):
+    dependencies:
+      dockview-core: 5.2.0
+      vue: 3.5.32(typescript@5.9.3)
 
   dom-serializer@2.0.0:
     dependencies:
