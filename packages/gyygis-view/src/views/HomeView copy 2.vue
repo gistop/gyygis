@@ -5,7 +5,7 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { defineComponent, h, onBeforeUnmount, onMounted, ref } from "vue";
 import { DockviewVue } from "dockview-vue";
 // 注意：安装依赖前会暂时在编辑器里报 “Cannot find module 'ol'”
 // 执行 `pnpm -C packages/gyygis-view add ol && pnpm -C packages/gyygis-view install` 后即可恢复
@@ -16,17 +16,7 @@ import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
 import "ol/ol.css";
 
-const TDT_WEB_TK = "";
-
-type DockviewVuePanelProps = {
-  // dockview-vue 会将真正的业务 params 再包一层：props.params.params
-  params?: Record<string, unknown>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  api?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  containerApi?: any;
-  tabLocation?: unknown;
-};
+const TDT_WEB_TK = "fa7482bbcd44e52cb5fb76cde5e7c83e";
 
 const GridPanel = defineComponent({
   name: "GridPanel",
@@ -34,35 +24,20 @@ const GridPanel = defineComponent({
     params: { type: Object, required: true }
   },
   setup(props) {
-    const dv = props.params as DockviewVuePanelProps;
-    const panelId = computed(() => {
-      const apiId = (dv.api as { id?: string } | undefined)?.id;
-      if (apiId) return apiId;
-      const pId = (dv.params as { id?: string } | undefined)?.id;
-      return pId ?? "";
-    });
-    const panelTitle = computed(() => {
-      const t = (dv.params as { title?: string } | undefined)?.title;
-      return t ?? panelId.value ?? "Panel";
-    });
-    const kind = computed(() => {
-      return ((dv.params as { kind?: string } | undefined)?.kind ?? "") as string;
-    });
+    const p = props.params as { id?: string; title?: string };
 
     const mapEl = ref<HTMLDivElement | null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let mapInstance: any | null = null;
     let ro: ResizeObserver | null = null;
 
-    const shouldRenderMap = computed(() => kind.value === "tianditu" || panelId.value === "r2c2");
+    const isCenterPanel = p.id === "r2c2";
 
     onMounted(async () => {
-      if (!shouldRenderMap.value) return;
+      if (!isCenterPanel) return;
       if (!mapEl.value) return;
 
       try {
-        await nextTick();
-
         const imgLayer = new TileLayer({
           source: new XYZ({
             url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${TDT_WEB_TK}`,
@@ -83,12 +58,6 @@ const GridPanel = defineComponent({
             center: fromLonLat([116.407526, 39.90403]),
             zoom: 12
           })
-        });
-
-        // Dockview 初次布局时容器尺寸可能在 mounted 后才稳定，补一次 updateSize
-        await nextTick();
-        requestAnimationFrame(() => {
-          mapInstance?.updateSize?.();
         });
 
         ro = new ResizeObserver(() => {
@@ -112,22 +81,11 @@ const GridPanel = defineComponent({
     return () =>
       h("section", { class: "gridPanel" }, [
         h("header", { class: "gridPanel__header" }, [
-          h("div", { class: "gridPanel__title" }, panelTitle.value),
-          h(
-            "div",
-            { class: "gridPanel__meta" },
-            panelId.value ? `id: ${panelId.value}${kind.value ? ` · ${kind.value}` : ""}` : ""
-          )
+          h("div", { class: "gridPanel__title" }, p.title ?? p.id ?? "Panel"),
+          h("div", { class: "gridPanel__meta" }, p.id ? `id: ${p.id}` : "")
         ]),
-        shouldRenderMap.value
-          ? h("div", {
-              class: "gridPanel__mapWrap",
-              // Dockview 容器可能会监听/劫持拖拽手势（用于面板拖拽/分割），
-              // 这里阻断冒泡，确保 OpenLayers 能收到 pointer drag 事件。
-              onPointerdown: (e: PointerEvent) => e.stopPropagation(),
-              onMousedown: (e: MouseEvent) => e.stopPropagation(),
-              onTouchstart: (e: TouchEvent) => e.stopPropagation()
-            }, [
+        isCenterPanel
+          ? h("div", { class: "gridPanel__mapWrap" }, [
               h("div", { ref: mapEl, class: "tdtMap" })
             ])
           : h("div", { class: "gridPanel__body" }, [
@@ -169,19 +127,17 @@ function onReady(event: DockviewReadyEvent) {
   const p33 = "r3c3";
 
   // 第 1 行：先生成 3 列
-  api.addPanel({ id: p11, component: "GridPanel", title: "1-1", params: { id: p11, title: "1-1" } });
+  api.addPanel({ id: p11, component: "GridPanel", title: "1-1" });
   api.addPanel({
     id: p12,
     component: "GridPanel",
     title: "1-2（中列）",
-    params: { id: p12, title: "1-2（中列）" },
     position: { referencePanel: p11, direction: "right", size: 520 } as any
   });
   api.addPanel({
     id: p13,
     component: "GridPanel",
     title: "1-3",
-    params: { id: p13, title: "1-3" },
     position: { referencePanel: p12, direction: "right" } as any
   });
 
@@ -190,21 +146,18 @@ function onReady(event: DockviewReadyEvent) {
     id: p21,
     component: "GridPanel",
     title: "2-1（中行）",
-    params: { id: p21, title: "2-1（中行）" },
     position: { referencePanel: p11, direction: "below", size: 420 } as any
   });
   api.addPanel({
     id: p22,
     component: "GridPanel",
     title: "2-2（中心更大）",
-    params: { id: p22, title: "2-2（中心更大）", kind: "tianditu" },
     position: { referencePanel: p12, direction: "below", size: 420 } as any
   });
   api.addPanel({
     id: p23,
     component: "GridPanel",
     title: "2-3（中行）",
-    params: { id: p23, title: "2-3（中行）" },
     position: { referencePanel: p13, direction: "below", size: 420 } as any
   });
 
@@ -213,21 +166,18 @@ function onReady(event: DockviewReadyEvent) {
     id: p31,
     component: "GridPanel",
     title: "3-1",
-    params: { id: p31, title: "3-1" },
     position: { referencePanel: p21, direction: "below" } as any
   });
   api.addPanel({
     id: p32,
     component: "GridPanel",
     title: "3-2（中列）",
-    params: { id: p32, title: "3-2（中列）" },
     position: { referencePanel: p22, direction: "below" } as any
   });
   api.addPanel({
     id: p33,
     component: "GridPanel",
     title: "3-3",
-    params: { id: p33, title: "3-3" },
     position: { referencePanel: p23, direction: "below" } as any
   });
 }
@@ -328,15 +278,12 @@ onBeforeUnmountSetup(() => {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);
-  pointer-events: auto;
 }
 
 .tdtMap {
   height: 100%;
   width: 100%;
   min-height: 0;
-  pointer-events: auto;
-  touch-action: none;
 }
 
 .gridPanel__mapWrap :is(.ol-viewport, .ol-unselectable, canvas) {

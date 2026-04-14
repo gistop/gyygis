@@ -16,7 +16,7 @@ import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
 import "ol/ol.css";
 
-const TDT_WEB_TK = "";
+const TDT_WEB_TK = "fa7482bbcd44e52cb5fb76cde5e7c83e";
 
 type DockviewVuePanelProps = {
   // dockview-vue 会将真正的业务 params 再包一层：props.params.params
@@ -120,14 +120,7 @@ const GridPanel = defineComponent({
           )
         ]),
         shouldRenderMap.value
-          ? h("div", {
-              class: "gridPanel__mapWrap",
-              // Dockview 容器可能会监听/劫持拖拽手势（用于面板拖拽/分割），
-              // 这里阻断冒泡，确保 OpenLayers 能收到 pointer drag 事件。
-              onPointerdown: (e: PointerEvent) => e.stopPropagation(),
-              onMousedown: (e: MouseEvent) => e.stopPropagation(),
-              onTouchstart: (e: TouchEvent) => e.stopPropagation()
-            }, [
+          ? h("div", { class: "gridPanel__mapWrap" }, [
               h("div", { ref: mapEl, class: "tdtMap" })
             ])
           : h("div", { class: "gridPanel__body" }, [
@@ -328,15 +321,12 @@ onBeforeUnmountSetup(() => {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);
-  pointer-events: auto;
 }
 
 .tdtMap {
   height: 100%;
   width: 100%;
   min-height: 0;
-  pointer-events: auto;
-  touch-action: none;
 }
 
 .gridPanel__mapWrap :is(.ol-viewport, .ol-unselectable, canvas) {
