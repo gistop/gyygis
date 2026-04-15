@@ -13,6 +13,10 @@ set -x
   done
   echo "=== GeoServer Web UI 已启动"
 
+  GS_URL="http://localhost:8080/geoserver"
+  GS_USER="${GEOSERVER_ADMIN_USER:-admin}"
+  GS_PASS="${GEOSERVER_ADMIN_PASSWORD:-geoserver}"
+
   echo "=== 等待 GeoServer REST API 就绪..."
   until curl -s -f -u "$GS_USER:$GS_PASS" "http://localhost:8080/geoserver/rest/workspaces.json" > /dev/null; do
     echo "等待 GeoServer REST API 就绪..."
@@ -20,9 +24,7 @@ set -x
   done
   echo "=== GeoServer REST API 已就绪"
 
-  GS_URL="http://localhost:8080/geoserver"
-  GS_USER="${GEOSERVER_ADMIN_USER:-admin}"
-  GS_PASS="${GEOSERVER_ADMIN_PASSWORD:-geoserver}"
+  
 
   WORKSPACE="geoworkspace"
   STORE="postgis_store"
