@@ -1,18 +1,84 @@
 services:
+  postgis:
+    image: postgis/postgis:18-3.6
+    container_name: gyygis-postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-geodb}
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./postgis/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGIS_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d geodb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: gyygis-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+
+  geoserver:
+    image: kartoza/geoserver:2.28.2
+    container_name: gyygis-geoserver
+    restart: unless-stopped
+    command: sh -c "/docker-entrypoint-initdb.d/init.sh & /docker-entrypoint.sh"
+    environment:
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      INIT_POSTGRES_HOST: postgis
+      INIT_POSTGRES_PORT: "5432"
+      INIT_POSTGRES_DB: ${POSTGRES_DB:-geodb}
+      INIT_POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      INIT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      ENABLE_CORS: "true"
+      CORS_ALLOWED_ORIGINS: "*"
+    volumes:
+      - geoserver_data:/opt/geoserver/data_dir
+      - ./geoserver/init:/docker-entrypoint-initdb.d:ro
+      - ./geoserver/init:/docker-entrypoint-geoserver.d
+    depends_on:
+      postgis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/geoserver/web/"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 120s
+
   api:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.server
     env_file:
       - .env
+    environment:
+      PORT: "3000"
     ports:
       - "${API_PORT:-3000}:3000"
     restart: unless-stopped
 
   admin:
     build:
-      context: ../packages/gyygis-admin
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile.admin
     ports:
       - "${ADMIN_PORT:-8081}:80"
     restart: unless-stopped
@@ -32,3 +98,23 @@ services:
     ports:
       - "${CORE_PORT:-8083}:80"
     restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: gyygis-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    depends_on:
+      api:
+        condition: service_started
+      geoserver:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  geoserver_data:
+  pgadmin_data:

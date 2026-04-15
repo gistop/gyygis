@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>gyygis 部署入口</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      ul {
+        padding-left: 1.2rem;
+      }
+      a {
+        color: #0b57d0;
+      }
+      code {
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>gyygis 网关（Nginx）</h1>
+    <p>本页仅作导航。业务前端默认仍通过各自端口访问（与 <code>deploy/.env</code> 中端口一致）。</p>
+    <ul>
+      <li><a id="link-api" href="/api/">API 前缀 <code>/api/</code></a>（经网关转发到 gyygis-server）</li>
+      <li><a id="link-geoserver" href="/geoserver/">GeoServer <code>/geoserver/</code></a></li>
+      <li><a id="link-admin" href="#">管理端（ADMIN_PORT）</a></li>
+      <li><a id="link-view" href="#">用户端（VIEW_PORT）</a></li>
+      <li><a id="link-core" href="#">Core 演示（CORE_PORT）</a></li>
+      <li><a id="link-pgadmin" href="#">pgAdmin（PGADMIN_PORT）</a></li>
+    </ul>
+    <p>GeoServer 默认账号见 <code>deploy/.env.example</code> 中的 <code>GEOSERVER_ADMIN_*</code>。</p>
+    <script>
+      (function () {
+        var h = location.hostname || "localhost";
+        var p = new URLSearchParams(location.search);
+        var admin = p.get("admin") || "8081";
+        var view = p.get("view") || "8082";
+        var core = p.get("core") || "8083";
+        var pg = p.get("pgadmin") || "5050";
+        function set(id, url) {
+          var el = document.getElementById(id);
+          if (el) {
+            el.href = url;
+          }
+        }
+        set("link-admin", "http://" + h + ":" + admin + "/");
+        set("link-view", "http://" + h + ":" + view + "/");
+        set("link-core", "http://" + h + ":" + core + "/");
+        set("link-pgadmin", "http://" + h + ":" + pg + "/");
+      })();
+    </script>
+  </body>
+</html>
