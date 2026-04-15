@@ -339,7 +339,10 @@ onBeforeUnmountSetup(() => {
   touch-action: none;
 }
 
-.gridPanel__mapWrap :is(.ol-viewport, .ol-unselectable, canvas) {
+
+.gridPanel__mapWrap .ol-viewport,
+.gridPanel__mapWrap .ol-layers,
+.gridPanel__mapWrap canvas {
   width: 100%;
   height: 100%;
 }
