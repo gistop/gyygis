@@ -17,16 +17,9 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, defineComponent, h } from "vue";
 import { DockviewVue } from "dockview-vue";
-// 注意：安装依赖前会暂时在编辑器里报 “Cannot find module 'ol'”
-// 执行 `pnpm -C packages/gyygis-view add ol && pnpm -C packages/gyygis-view install` 后即可恢复
-import Map from "ol/Map";
-import View from "ol/View";
-import TileLayer from "ol/layer/Tile";
-import XYZ from "ol/source/XYZ";
-import { fromLonLat } from "ol/proj";
-import "ol/ol.css";
+import TiandituMapPanel from "@/panels/TiandituMapPanel.vue";
 
 const TDT_WEB_TK = "fa7482bbcd44e52cb5fb76cde5e7c83e";
 
@@ -61,65 +54,7 @@ const GridPanel = defineComponent({
       return ((dv.params as { kind?: string } | undefined)?.kind ?? "") as string;
     });
 
-    const mapEl = ref<HTMLDivElement | null>(null);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let mapInstance: any | null = null;
-    let ro: ResizeObserver | null = null;
-
     const shouldRenderMap = computed(() => kind.value === "tianditu" || panelId.value === "r2c2");
-
-    onMounted(async () => {
-      if (!shouldRenderMap.value) return;
-      if (!mapEl.value) return;
-
-      try {
-        await nextTick();
-
-        const imgLayer = new TileLayer({
-          source: new XYZ({
-            url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${TDT_WEB_TK}`,
-            crossOrigin: "anonymous"
-          })
-        });
-        const imgLabelLayer = new TileLayer({
-          source: new XYZ({
-            url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=cia_w&x={x}&y={y}&l={z}&tk=${TDT_WEB_TK}`,
-            crossOrigin: "anonymous"
-          })
-        });
-
-        mapInstance = new Map({
-          target: mapEl.value,
-          layers: [imgLayer, imgLabelLayer],
-          view: new View({
-            center: fromLonLat([116.407526, 39.90403]),
-            zoom: 12
-          })
-        });
-
-        // Dockview 初次布局时容器尺寸可能在 mounted 后才稳定，补一次 updateSize
-        await nextTick();
-        requestAnimationFrame(() => {
-          mapInstance?.updateSize?.();
-        });
-
-        ro = new ResizeObserver(() => {
-          mapInstance?.updateSize?.();
-        });
-        ro.observe(mapEl.value);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        mapEl.value.innerHTML = `<div class="tdtError">天地图加载失败：${msg}</div>`;
-      }
-    });
-
-    onBeforeUnmount(() => {
-      // dockview 面板卸载时尽量释放引用
-      ro?.disconnect();
-      ro = null;
-      mapInstance?.setTarget?.(undefined);
-      mapInstance = null;
-    });
 
     return () =>
       h("section", { class: "gridPanel" }, [
@@ -132,16 +67,7 @@ const GridPanel = defineComponent({
           )
         ]),
         shouldRenderMap.value
-          ? h("div", {
-              class: "gridPanel__mapWrap",
-              // Dockview 容器可能会监听/劫持拖拽手势（用于面板拖拽/分割），
-              // 这里阻断冒泡，确保 OpenLayers 能收到 pointer drag 事件。
-              onPointerdown: (e: PointerEvent) => e.stopPropagation(),
-              onMousedown: (e: MouseEvent) => e.stopPropagation(),
-              onTouchstart: (e: TouchEvent) => e.stopPropagation()
-            }, [
-              h("div", { ref: mapEl, class: "tdtMap" })
-            ])
+          ? h(TiandituMapPanel, { tk: TDT_WEB_TK })
           : h("div", { class: "gridPanel__body" }, [
               h("div", { class: "gridPanel__hint" }, "Dockview 3×3 网格示例")
             ])
