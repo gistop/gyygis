@@ -13,6 +13,18 @@
       @pointerleave.stop="onCornerPointerCancel"
       @contextmenu.prevent
     />
+    <el-drawer
+      v-model="cornerDrawerVisible"
+      title="触发提示"
+      direction="rtl"
+      size="320px"
+      append-to-body
+      :modal="false"
+      :lock-scroll="false"
+      modal-penetrable
+    >
+      <p class="cornerDrawerBody">{{ cornerDrawerMessage }}</p>
+    </el-drawer>
   </main>
 </template>
 
@@ -96,6 +108,8 @@ const CORNER_LONG_PRESS_MS = 1500;
 const cornerTapTs = refSetup<number[]>([]);
 const cornerLongPressTimer = refSetup<number | null>(null);
 const cornerLongPressFired = refSetup(false);
+const cornerDrawerVisible = refSetup(false);
+const cornerDrawerMessage = refSetup("");
 
 function triggerCornerAlert(reason: "multi-tap" | "long-press") {
   cornerTapTs.value = [];
@@ -104,7 +118,9 @@ function triggerCornerAlert(reason: "multi-tap" | "long-press") {
     cornerLongPressTimer.value = null;
   }
   cornerLongPressFired.value = true;
-  window.alert(reason === "multi-tap" ? "已触发：2秒内连点5次" : "已触发：长按1.5秒");
+  cornerDrawerMessage.value =
+    reason === "multi-tap" ? "已触发：2秒内连点5次" : "已触发：长按1.5秒";
+  cornerDrawerVisible.value = true;
 
   // 避免长按触发后紧跟着的 click 再触发一次
   window.setTimeout(() => {
@@ -295,6 +311,12 @@ onBeforeUnmountSetup(() => {
 .muted {
   opacity: 0.75;
   font-size: 12px;
+}
+
+.cornerDrawerBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
 }
 </style>
 
