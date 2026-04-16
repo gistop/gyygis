@@ -1,6 +1,18 @@
 <template>
   <main class="homeDockview">
     <DockviewVue class="dockviewFill" @ready="onReady" />
+    <div
+      class="cornerHotspot"
+      aria-label="corner-hotspot"
+      role="button"
+      tabindex="0"
+      @click.stop="onCornerClick"
+      @pointerdown.stop.prevent="onCornerPointerDown"
+      @pointerup.stop="onCornerPointerUp"
+      @pointercancel.stop="onCornerPointerCancel"
+      @pointerleave.stop="onCornerPointerCancel"
+      @contextmenu.prevent
+    />
   </main>
 </template>
 
@@ -16,7 +28,7 @@ import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
 import "ol/ol.css";
 
-const TDT_WEB_TK = "";
+const TDT_WEB_TK = "fa7482bbcd44e52cb5fb76cde5e7c83e";
 
 type DockviewVuePanelProps = {
   // dockview-vue 会将真正的业务 params 再包一层：props.params.params
@@ -33,7 +45,7 @@ const GridPanel = defineComponent({
   props: {
     params: { type: Object, required: true }
   },
-  setup(props) {
+  setup(props: { params: unknown }) {
     const dv = props.params as DockviewVuePanelProps;
     const panelId = computed(() => {
       const apiId = (dv.api as { id?: string } | undefined)?.id;
@@ -151,6 +163,65 @@ import type { DockviewApi, DockviewReadyEvent } from "dockview-core";
 
 const dockviewApi = refSetup<DockviewApi | null>(null);
 
+const CORNER_MULTI_TAP_WINDOW_MS = 2000;
+const CORNER_MULTI_TAP_COUNT = 5;
+const CORNER_LONG_PRESS_MS = 1500;
+
+const cornerTapTs = refSetup<number[]>([]);
+const cornerLongPressTimer = refSetup<number | null>(null);
+const cornerLongPressFired = refSetup(false);
+
+function triggerCornerAlert(reason: "multi-tap" | "long-press") {
+  cornerTapTs.value = [];
+  if (cornerLongPressTimer.value != null) {
+    window.clearTimeout(cornerLongPressTimer.value);
+    cornerLongPressTimer.value = null;
+  }
+  cornerLongPressFired.value = true;
+  window.alert(reason === "multi-tap" ? "已触发：2秒内连点5次" : "已触发：长按1.5秒");
+
+  // 避免长按触发后紧跟着的 click 再触发一次
+  window.setTimeout(() => {
+    cornerLongPressFired.value = false;
+  }, 0);
+}
+
+function onCornerClick() {
+  if (cornerLongPressFired.value) return;
+
+  const now = Date.now();
+  const keepAfter = now - CORNER_MULTI_TAP_WINDOW_MS;
+  cornerTapTs.value = cornerTapTs.value.filter((t: number) => t >= keepAfter);
+  cornerTapTs.value.push(now);
+
+  if (cornerTapTs.value.length >= CORNER_MULTI_TAP_COUNT) {
+    triggerCornerAlert("multi-tap");
+  }
+}
+
+function clearCornerLongPressTimer() {
+  if (cornerLongPressTimer.value != null) {
+    window.clearTimeout(cornerLongPressTimer.value);
+    cornerLongPressTimer.value = null;
+  }
+}
+
+function onCornerPointerDown() {
+  cornerLongPressFired.value = false;
+  clearCornerLongPressTimer();
+  cornerLongPressTimer.value = window.setTimeout(() => {
+    triggerCornerAlert("long-press");
+  }, CORNER_LONG_PRESS_MS);
+}
+
+function onCornerPointerUp() {
+  clearCornerLongPressTimer();
+}
+
+function onCornerPointerCancel() {
+  clearCornerLongPressTimer();
+}
+
 function onReady(event: DockviewReadyEvent) {
   const { api } = event;
   dockviewApi.value = api;
@@ -234,6 +305,8 @@ function onReady(event: DockviewReadyEvent) {
 
 onBeforeUnmountSetup(() => {
   dockviewApi.value = null;
+  cornerTapTs.value = [];
+  clearCornerLongPressTimer();
 });
 </script>
 
@@ -243,6 +316,7 @@ onBeforeUnmountSetup(() => {
   width: 100%;
   min-height: 0;
   min-width: 0;
+  position: relative;
 }
 
 .dockviewFill {
@@ -250,6 +324,20 @@ onBeforeUnmountSetup(() => {
   width: 100%;
   min-height: 0;
   min-width: 0;
+}
+
+.cornerHotspot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  z-index: 50;
+  background: transparent;
+  cursor: default;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .btn {
