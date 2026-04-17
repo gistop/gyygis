@@ -33,7 +33,7 @@ import { computed, defineComponent, h } from "vue";
 import { DockviewVue } from "dockview-vue";
 import TiandituMapPanel from "@/panels/TiandituMapPanel.vue";
 
-const TDT_WEB_TK = "fa7482bbcd44e52cb5fb76cde5e7c83e";
+const TDT_WEB_TK = "";
 
 type DockviewVuePanelProps = {
   // dockview-vue 会将真正的业务 params 再包一层：props.params.params

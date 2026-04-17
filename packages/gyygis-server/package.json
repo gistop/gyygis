@@ -10,6 +10,8 @@
     "test": "node --import tsx --test __tests__/health.test.ts"
   },
   "dependencies": {
+    "@alicloud/openapi-client": "^0.4.15",
+    "@alicloud/sts20150401": "^1.2.0",
     "axios": "^1.8.4",
     "dotenv": "^16.4.7",
     "express": "^4.21.2"
