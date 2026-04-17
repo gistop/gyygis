@@ -1,6 +1,6 @@
 <template>
-  <main class="homeDockview">
-    <DockviewVue class="dockviewFill" @ready="onReady" />
+  <main ref="homeRoot" class="homeDockview" :class="dockThemeClassName" :style="layoutCssVars">
+    <DockviewVue :theme="runtimeDockTheme" class="dockviewFill" @ready="onReady" />
     <div
       class="cornerHotspot"
       aria-label="corner-hotspot"
@@ -15,15 +15,26 @@
     />
     <el-drawer
       v-model="cornerDrawerVisible"
-      title="触发提示"
+      title="设置"
       direction="rtl"
-      size="320px"
+      size="440px"
       append-to-body
       :modal="false"
       :lock-scroll="false"
       modal-penetrable
     >
-      <p class="cornerDrawerBody">{{ cornerDrawerMessage }}</p>
+      <p v-if="cornerDrawerMessage" class="cornerDrawerBody">{{ cornerDrawerMessage }}</p>
+      <DockviewThemeSettings
+        v-model:show-panel-title-bar="showPanelTitleBar"
+        v-model:group-gap-px="groupGapPx"
+        v-model:tab-bar-height-px="tabBarHeightPx"
+        v-model:tab-spacing-px="tabSpacingPx"
+        v-model:panel-padding-px="panelPaddingPx"
+        v-model:border-radius-px="borderRadiusPx"
+        :presets="THEME_PRESETS"
+        :dock-theme="dockTheme"
+        :set-dock-theme="setDockTheme"
+      />
     </el-drawer>
   </main>
 </template>
@@ -98,8 +109,26 @@ export default {
 <script setup lang="ts">
 import { onBeforeUnmount as onBeforeUnmountSetup, ref as refSetup } from "vue";
 import type { DockviewApi, DockviewReadyEvent } from "dockview-core";
+import { useDockviewThemeSettings } from "@/composables/useDockviewThemeSettings";
+import DockviewThemeSettings from "@/panels/DockviewThemeSettings.vue";
 
 const dockviewApi = refSetup<DockviewApi | null>(null);
+const homeRoot = refSetup<HTMLElement | null>(null);
+
+const {
+  THEME_PRESETS,
+  dockTheme,
+  dockThemeClassName,
+  layoutCssVars,
+  runtimeDockTheme,
+  groupGapPx,
+  tabBarHeightPx,
+  tabSpacingPx,
+  panelPaddingPx,
+  borderRadiusPx,
+  showPanelTitleBar,
+  setDockTheme
+} = useDockviewThemeSettings(dockviewApi, homeRoot);
 
 const CORNER_MULTI_TAP_WINDOW_MS = 2000;
 const CORNER_MULTI_TAP_COUNT = 5;
@@ -254,11 +283,13 @@ onBeforeUnmountSetup(() => {
 
 <style scoped>
 .homeDockview {
-  height: 100vh;
+  box-sizing: border-box;
+  height: 100%;
   width: 100%;
   min-height: 0;
   min-width: 0;
   position: relative;
+  overflow: hidden;
 }
 
 .dockviewFill {
@@ -314,7 +345,7 @@ onBeforeUnmountSetup(() => {
 }
 
 .cornerDrawerBody {
-  margin: 0;
+  margin: 0 0 12px;
   font-size: 14px;
   line-height: 1.6;
 }

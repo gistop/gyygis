@@ -127,7 +127,6 @@ import {
   themeDracula,
   themeLight,
   themeLightSpaced,
-  themeReplit,
   themeVisualStudio,
   type DockviewApi,
   type DockviewReadyEvent,
@@ -144,7 +143,6 @@ const THEME_PRESETS: { label: string; theme: DockviewTheme }[] = [
   { label: "Visual Studio", theme: themeVisualStudio },
   { label: "Abyss", theme: themeAbyss },
   { label: "Dracula", theme: themeDracula },
-  { label: "Replit", theme: themeReplit },
   { label: "浅色·间距", theme: themeLightSpaced },
   { label: "Abyss·间距", theme: themeAbyssSpaced }
 ];

@@ -1,0 +1,46 @@
+/**
+ * 自定义大屏数据风主题（深蓝 + 青蓝高光）
+ * 配合 DockviewTheme.className: dockview-theme-gyygis-bigscreen-blue
+ * 说明：https://dockview.dev/docs/core/theming
+ */
+.dockview-theme-gyygis-bigscreen-blue {
+  --dv-paneview-active-outline-color: #00d4ff;
+  --dv-tabs-and-actions-container-font-size: 13px;
+  --dv-tabs-and-actions-container-height: 35px;
+  --dv-drag-over-background-color: rgba(0, 212, 255, 0.14);
+  --dv-drag-over-border-color: rgba(0, 212, 255, 0.45);
+  --dv-tabs-container-scrollbar-color: rgba(0, 212, 255, 0.45);
+  --dv-icon-hover-background-color: rgba(0, 212, 255, 0.14);
+  --dv-floating-box-shadow:
+    0 16px 48px rgba(0, 24, 48, 0.65),
+    0 0 0 1px rgba(0, 212, 255, 0.22);
+  --dv-overlay-z-index: 999;
+  --dv-tab-font-size: inherit;
+  --dv-border-radius: 0px;
+  --dv-tab-margin: 0;
+  --dv-sash-color: rgba(0, 212, 255, 0.12);
+  --dv-active-sash-color: rgba(0, 212, 255, 0.55);
+  --dv-active-sash-transition-duration: 0.1s;
+  --dv-active-sash-transition-delay: 0.35s;
+  --dv-scrollbar-background-color: rgba(0, 212, 255, 0.28);
+  --dv-group-view-background-color: #0a1628;
+  --dv-tabs-and-actions-container-background-color: #0d2137;
+  --dv-activegroup-visiblepanel-tab-background-color: #0a1628;
+  --dv-activegroup-hiddenpanel-tab-background-color: #132f4c;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #0a1628;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #132f4c;
+  --dv-tab-divider-color: #132f4c;
+  --dv-activegroup-visiblepanel-tab-color: #e8f7ff;
+  --dv-activegroup-hiddenpanel-tab-color: #7eb8d9;
+  --dv-inactivegroup-visiblepanel-tab-color: #8ecfff;
+  --dv-inactivegroup-hiddenpanel-tab-color: #5a9ec4;
+  --dv-separator-border: rgba(0, 180, 220, 0.35);
+  --dv-paneview-header-border-color: rgba(0, 212, 255, 0.22);
+}
+
+.dockview-theme-gyygis-bigscreen-blue
+  .dv-drop-target-container
+  .dv-drop-target-anchor.dv-drop-target-anchor-container-changed {
+  opacity: 0;
+  transition: none;
+}

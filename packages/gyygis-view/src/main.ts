@@ -3,6 +3,7 @@ import { createPinia } from "pinia";
 import ElementPlus from "element-plus";
 import "element-plus/dist/index.css";
 import "dockview-core/dist/styles/dockview.css";
+import "@/styles/dockview-theme-gyygis-bigscreen-blue.css";
 import App from "./App.vue";
 import router from "./router";
 
