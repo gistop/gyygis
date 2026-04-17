@@ -10,6 +10,7 @@
     "typecheck": "vue-tsc --noEmit --skipLibCheck"
   },
   "dependencies": {
+    "echarts": "^6.0.0",
     "axios": "^1.12.2",
     "dockview-core": "^5.2.0",
     "dockview-vue": "^5.2.0",

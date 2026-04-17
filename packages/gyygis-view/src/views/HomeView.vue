@@ -43,6 +43,9 @@
 import { computed, defineComponent, h } from "vue";
 import { DockviewVue } from "dockview-vue";
 import TiandituMapPanel from "@/panels/TiandituMapPanel.vue";
+import EchartsPanel from "@/panels/EchartsPanel.vue";
+import DockviewEmbedTablePanel from "@/panels/DockviewEmbedTablePanel.vue";
+import { isDockviewChartKind } from "@/charts/types";
 
 const TDT_WEB_TK = "";
 
@@ -77,7 +80,28 @@ const GridPanel = defineComponent({
       return ((dv.params as { kind?: string } | undefined)?.kind ?? "") as string;
     });
 
+    const chartKindParam = computed(() => {
+      const raw = (dv.params as { chartKind?: string } | undefined)?.chartKind ?? "";
+      return isDockviewChartKind(raw) ? raw : null;
+    });
+
+    const embedKind = computed(() => {
+      return ((dv.params as { embedKind?: string } | undefined)?.embedKind ?? "") as string;
+    });
+
     const shouldRenderMap = computed(() => kind.value === "tianditu" || panelId.value === "r2c2");
+
+    const shouldRenderChart = computed(() => chartKindParam.value != null);
+
+    const shouldRenderTable = computed(() => embedKind.value === "table");
+
+    const metaSuffix = computed(() => {
+      const parts: string[] = [];
+      if (kind.value) parts.push(kind.value);
+      if (chartKindParam.value) parts.push(`chart:${chartKindParam.value}`);
+      if (embedKind.value) parts.push(`embed:${embedKind.value}`);
+      return parts.length ? ` · ${parts.join(" · ")}` : "";
+    });
 
     return () =>
       h("section", { class: "gridPanel" }, [
@@ -86,14 +110,18 @@ const GridPanel = defineComponent({
           h(
             "div",
             { class: "gridPanel__meta" },
-            panelId.value ? `id: ${panelId.value}${kind.value ? ` · ${kind.value}` : ""}` : ""
+            panelId.value ? `id: ${panelId.value}${metaSuffix.value}` : ""
           )
         ]),
         shouldRenderMap.value
           ? h(TiandituMapPanel, { tk: TDT_WEB_TK })
-          : h("div", { class: "gridPanel__body" }, [
-              h("div", { class: "gridPanel__hint" }, "Dockview 3×3 网格示例")
-            ])
+          : shouldRenderChart.value
+            ? h(EchartsPanel, { chartKind: chartKindParam.value! })
+            : shouldRenderTable.value
+              ? h(DockviewEmbedTablePanel)
+              : h("div", { class: "gridPanel__body" }, [
+                  h("div", { class: "gridPanel__hint" }, "Dockview 3×3 网格示例")
+                ])
       ]);
   }
 });
@@ -107,12 +135,12 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { onBeforeUnmount as onBeforeUnmountSetup, ref as refSetup } from "vue";
+import { onBeforeUnmount as onBeforeUnmountSetup, ref as refSetup, type Ref } from "vue";
 import type { DockviewApi, DockviewReadyEvent } from "dockview-core";
 import { useDockviewThemeSettings } from "@/composables/useDockviewThemeSettings";
 import DockviewThemeSettings from "@/panels/DockviewThemeSettings.vue";
 
-const dockviewApi = refSetup<DockviewApi | null>(null);
+const dockviewApi: Ref<DockviewApi | null> = refSetup(null);
 const homeRoot = refSetup<HTMLElement | null>(null);
 
 const {
@@ -245,8 +273,8 @@ function onReady(event: DockviewReadyEvent) {
   api.addPanel({
     id: p23,
     component: "GridPanel",
-    title: "2-3（中行）",
-    params: { id: p23, title: "2-3（中行）" },
+    title: "2-3（柱状图）",
+    params: { id: p23, title: "2-3（柱状图）", chartKind: "bar" },
     position: { referencePanel: p13, direction: "below", size: 420 } as any
   });
 
@@ -268,8 +296,8 @@ function onReady(event: DockviewReadyEvent) {
   api.addPanel({
     id: p33,
     component: "GridPanel",
-    title: "3-3",
-    params: { id: p33, title: "3-3" },
+    title: "3-3（表格）",
+    params: { id: p33, title: "3-3（表格）", embedKind: "table" },
     position: { referencePanel: p23, direction: "below" } as any
   });
 }

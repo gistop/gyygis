@@ -337,6 +337,9 @@ importers:
       dockview-vue:
         specifier: ^5.2.0
         version: 5.2.0(vue@3.5.32(typescript@5.9.3))
+      echarts:
+        specifier: ^6.0.0
+        version: 6.0.0
       element-plus:
         specifier: ^2.11.5
         version: 2.13.6(typescript@5.9.3)(vue@3.5.32(typescript@5.9.3))
