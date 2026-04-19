@@ -31,6 +31,7 @@
         v-model:tab-spacing-px="tabSpacingPx"
         v-model:panel-padding-px="panelPaddingPx"
         v-model:border-radius-px="borderRadiusPx"
+        v-model:frame-border-opacity-percent="frameBorderOpacityPercent"
         :presets="THEME_PRESETS"
         :dock-theme="dockTheme"
         :set-dock-theme="setDockTheme"
@@ -138,6 +139,7 @@ const {
   tabSpacingPx,
   panelPaddingPx,
   borderRadiusPx,
+  frameBorderOpacityPercent,
   showPanelTitleBar,
   setDockTheme
 } = useDockviewThemeSettings(dockviewApi, homeRoot);

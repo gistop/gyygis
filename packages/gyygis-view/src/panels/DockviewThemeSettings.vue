@@ -54,6 +54,17 @@
           <input v-model.number="borderRadiusPx" type="range" min="0" max="16" step="1" />
           <span class="slider-value">{{ borderRadiusPx }}px</span>
         </label>
+        <label class="slider-row">
+          <span class="slider-label">边框/分隔线透明度</span>
+          <input
+            v-model.number="frameBorderOpacityPercent"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+          />
+          <span class="slider-value">{{ frameBorderOpacityPercent }}%</span>
+        </label>
       </div>
     </details>
   </div>
@@ -75,6 +86,9 @@ const tabBarHeightPx = defineModel<number>("tabBarHeightPx", { required: true })
 const tabSpacingPx = defineModel<number>("tabSpacingPx", { required: true });
 const panelPaddingPx = defineModel<number>("panelPaddingPx", { required: true });
 const borderRadiusPx = defineModel<number>("borderRadiusPx", { required: true });
+const frameBorderOpacityPercent = defineModel<number>("frameBorderOpacityPercent", {
+  required: true
+});
 </script>
 
 <style scoped>

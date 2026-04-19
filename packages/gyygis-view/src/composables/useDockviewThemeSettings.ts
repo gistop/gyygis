@@ -23,6 +23,7 @@ import {
   syncDockThemeShell
 } from "@/dockviewThemeDom";
 import { themeGyygisBigScreenBlue } from "@/themes/gyygisDockviewThemes";
+import { applyDockviewChromeBorderVarsToElement } from "@/dockviewChromeBorderVars";
 
 export const THEME_PRESETS: { label: string; theme: DockviewTheme }[] = [
   { label: "浅色", theme: themeLight },
@@ -46,6 +47,8 @@ export function useDockviewThemeSettings(
   const tabSpacingPx = ref(0);
   const panelPaddingPx = ref(8);
   const borderRadiusPx = ref(0);
+  /** 0 = 边框/分隔线接近全透明，100 = 与主题默认强度一致（相对系数） */
+  const frameBorderOpacityPercent = ref(100);
   /** 是否显示各分组的标签栏（标题栏）；对应 Dockview `group.header.hidden` */
   const showPanelTitleBar = ref(true);
 
@@ -57,6 +60,25 @@ export function useDockviewThemeSettings(
     "--gyygis-panel-padding": `${panelPaddingPx.value}px`,
     "--dv-border-radius": `${borderRadiusPx.value}px`
   }));
+
+  /** Dockview 在子根上设置 theme 变量，会盖过 main 上的同名自定义属性，故边框透明度必须写在该根节点 */
+  function resolveDockviewChromeHostEl(): HTMLElement | null {
+    const root = homeRoot.value;
+    if (!root) return null;
+    const fill = root.querySelector(".dockviewFill");
+    const first = fill?.firstElementChild;
+    return first instanceof HTMLElement ? first : null;
+  }
+
+  function applyFrameBorderVarsToDockviewHost(): void {
+    const host = resolveDockviewChromeHostEl();
+    if (!host) return;
+    applyDockviewChromeBorderVarsToElement(
+      host,
+      frameBorderOpacityPercent.value,
+      dockTheme.value.className
+    );
+  }
 
   const runtimeDockTheme = computed<DockviewTheme>(() => ({
     name: dockTheme.value.name,
@@ -82,6 +104,8 @@ export function useDockviewThemeSettings(
     if (api) {
       api.layout(api.width, api.height);
     }
+    await nextTick();
+    applyFrameBorderVarsToDockviewHost();
   }
 
   async function applyThemeAndLayout() {
@@ -130,6 +154,12 @@ export function useDockviewThemeSettings(
     { flush: "post" }
   );
 
+  watch([frameBorderOpacityPercent, dockTheme], () => {
+    void nextTick(() => {
+      applyFrameBorderVarsToDockviewHost();
+    });
+  });
+
   watch(
     dockviewApi,
     api => {
@@ -168,6 +198,7 @@ export function useDockviewThemeSettings(
     tabSpacingPx,
     panelPaddingPx,
     borderRadiusPx,
+    frameBorderOpacityPercent,
     showPanelTitleBar,
     setDockTheme
   };
