@@ -49,6 +49,25 @@ import { isDockviewChartKind } from "@/charts/types";
 
 const TDT_WEB_TK = "";
 
+/** Dockview 面板 api：双击左下角热区切换分组最大化（版本差异用 duck typing） */
+function togglePanelMaximizeFromApi(api: unknown): void {
+  if (!api || typeof api !== "object") return;
+  const a = api as Record<string, unknown>;
+  try {
+    const isMax =
+      typeof a.isMaximized === "function" ? (a.isMaximized as () => boolean)() : false;
+    if (isMax && typeof a.exitMaximized === "function") {
+      (a.exitMaximized as () => void)();
+      return;
+    }
+    if (typeof a.maximize === "function") {
+      (a.maximize as () => void)();
+    }
+  } catch (e) {
+    console.warn("[GridPanel] maximize toggle failed", e);
+  }
+}
+
 type DockviewVuePanelProps = {
   // dockview-vue 会将真正的业务 params 再包一层：props.params.params
   params?: Record<string, unknown>;
@@ -121,7 +140,17 @@ const GridPanel = defineComponent({
               ? h(DockviewEmbedTablePanel)
               : h("div", { class: "gridPanel__body" }, [
                   h("div", { class: "gridPanel__hint" }, "Dockview 3×3 网格示例")
-                ])
+                ]),
+        h("div", {
+          class: "panelMaximizeHotspot",
+          title: "双击：最大化 / 再双击恢复",
+          ariaHidden: "true",
+          onDblclick: (e: MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            togglePanelMaximizeFromApi(dv.api);
+          }
+        })
       ]);
   }
 });
@@ -389,6 +418,23 @@ onBeforeUnmountSetup(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
+}
+
+/* 左下角隐形热区：大屏保持干净，双击切换 Dockview 分组最大化 */
+.panelMaximizeHotspot {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 56px;
+  height: 56px;
+  z-index: 30;
+  background: transparent;
+  cursor: default;
+  pointer-events: auto;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .gridPanel__header {
