@@ -71,9 +71,22 @@ services:
       - .env
     environment:
       PORT: "3000"
+      POSTGRES_HOST: postgis
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-geodb}
+      GEOSERVER_INTERNAL_URL: http://geoserver:8080/geoserver
+      GEOSERVER_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
     ports:
       - "${API_PORT:-3000}:3000"
     restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+      geoserver:
+        condition: service_healthy
 
   admin:
     build:

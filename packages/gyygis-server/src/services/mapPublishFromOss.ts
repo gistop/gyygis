@@ -1,0 +1,412 @@
+import OSS from "ali-oss";
+import { parse } from "csv-parse/sync";
+import axios from "axios";
+import pg from "pg";
+
+const WORKSPACE = "geoworkspace";
+const DATASTORE = "postgis_store";
+
+const LON_ALIASES = ["lon", "lng", "longitude", "x", "经度"];
+const LAT_ALIASES = ["lat", "latitude", "y", "纬度"];
+const NAME_ALIASES = ["name", "label", "名称", "title"];
+
+export type PublishCsvBody = {
+  objectKey: string;
+  /** 字母开头的标识，将存为表名 gyy_csv_<name> */
+  tableBase: string;
+  lonColumn?: string;
+  latColumn?: string;
+  nameColumn?: string;
+};
+
+export type PublishCsvResult = {
+  tableName: string;
+  workspace: string;
+  datastore: string;
+  layerName: string;
+  rowsInserted: number;
+  rowsSkipped: number;
+  wmsLayersParam: string;
+};
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function readEnv() {
+  const postgresHost = process.env.POSTGRES_HOST ?? "";
+  const postgresPort = Number(process.env.POSTGRES_PORT ?? "5432");
+  const postgresUser = process.env.POSTGRES_USER ?? "";
+  const postgresPassword = process.env.POSTGRES_PASSWORD ?? "";
+  const postgresDb = process.env.POSTGRES_DB ?? "";
+  const ossBucket = process.env.ALIYUN_OSS_BUCKET ?? "";
+  const ossRegion = process.env.ALIYUN_OSS_REGION ?? "";
+  const accessKeyId = process.env.ALIYUN_ACCESS_KEY_ID ?? "";
+  const accessKeySecret = process.env.ALIYUN_ACCESS_KEY_SECRET ?? "";
+  const uploadPrefix = (process.env.ALIYUN_OSS_UPLOAD_PREFIX ?? "uploads/").replace(
+    /\/?$/,
+    "/"
+  );
+  const geoserverUrl = (process.env.GEOSERVER_INTERNAL_URL ?? "").replace(/\/$/, "");
+  const geoserverUser = process.env.GEOSERVER_USER ?? "";
+  const geoserverPassword = process.env.GEOSERVER_PASSWORD ?? "";
+  return {
+    postgresHost,
+    postgresPort,
+    postgresUser,
+    postgresPassword,
+    postgresDb,
+    ossBucket,
+    ossRegion,
+    accessKeyId,
+    accessKeySecret,
+    uploadPrefix,
+    geoserverUrl,
+    geoserverUser,
+    geoserverPassword
+  };
+}
+
+export function isMapPublishConfigured(): boolean {
+  const e = readEnv();
+  return Boolean(
+    e.postgresHost &&
+      e.postgresUser &&
+      e.postgresDb &&
+      e.ossBucket &&
+      e.ossRegion &&
+      e.accessKeyId &&
+      e.accessKeySecret &&
+      e.geoserverUrl &&
+      e.geoserverUser
+  );
+}
+
+/** 生成 PostGIS 表名：gyy_csv_<slug>，仅小写字母数字下划线 */
+export function toCsvTableName(tableBase: string): string {
+  const slug = tableBase
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (!slug || slug.length < 2) {
+    throw new Error("tableBase 过短：请使用至少 2 个字符的英文/数字/下划线标识");
+  }
+  if (!/^[a-z]/.test(slug)) {
+    throw new Error("tableBase 须以字母开头");
+  }
+  if (slug.length > 48) {
+    throw new Error("tableBase 过长");
+  }
+  return `gyy_csv_${slug}`;
+}
+
+function assertSafeObjectKey(key: string, allowedPrefix: string): void {
+  if (!key || key.includes("..") || key.startsWith("/")) {
+    throw new Error("非法 objectKey");
+  }
+  if (!key.startsWith(allowedPrefix)) {
+    throw new Error(`objectKey 必须以配置的前缀开头：${allowedPrefix}`);
+  }
+}
+
+function pickColumn(
+  headers: string[],
+  explicit: string | undefined,
+  aliases: string[]
+): string {
+  if (explicit?.trim()) {
+    const want = explicit.trim().toLowerCase();
+    const found = headers.find(h => h.trim().toLowerCase() === want);
+    if (!found) {
+      throw new Error(`未找到列：${explicit.trim()}（可用列：${headers.join(", ")}）`);
+    }
+    return found;
+  }
+  const lower = new Map(headers.map(h => [h.toLowerCase().trim(), h]));
+  for (const a of aliases) {
+    const h = lower.get(a);
+    if (h) return h;
+  }
+  throw new Error(
+    `无法自动识别列，请传入 lonColumn/latColumn。表头：${headers.join(", ")}`
+  );
+}
+
+let pool: pg.Pool | null = null;
+
+function getPool(): pg.Pool {
+  if (pool) return pool;
+  const e = readEnv();
+  pool = new pg.Pool({
+    host: e.postgresHost,
+    port: e.postgresPort,
+    user: e.postgresUser,
+    password: e.postgresPassword,
+    database: e.postgresDb,
+    max: 4
+  });
+  return pool;
+}
+
+async function fetchOssBuffer(objectKey: string): Promise<Buffer> {
+  const e = readEnv();
+  const client = new OSS({
+    region: e.ossRegion,
+    accessKeyId: e.accessKeyId,
+    accessKeySecret: e.accessKeySecret,
+    bucket: e.ossBucket,
+    secure: true
+  });
+  const r = await client.get(objectKey);
+  const buf = r.content as Buffer | string;
+  if (Buffer.isBuffer(buf)) return buf;
+  return Buffer.from(buf, "utf8");
+}
+
+type GeoEnv = ReturnType<typeof readEnv>;
+
+const geoserverAuth = (user: string, pass: string) => ({
+  username: user,
+  password: pass
+});
+
+/**
+ * 若 init 未跑完或缺失，则通过 REST 自动创建 geoworkspace 与 postgis_store（与 deploy/geoserver/init/init.sh 一致）
+ */
+async function geoserverEnsureWorkspaceAndStore(e: GeoEnv): Promise<void> {
+  const { geoserverUrl: baseUrl, geoserverUser: user, geoserverPassword: pass } = e;
+  const auth = geoserverAuth(user, pass);
+
+  const wsUrl = `${baseUrl}/rest/workspaces/${WORKSPACE}.json`;
+  const wsGet = await axios.get(wsUrl, { auth, validateStatus: () => true });
+  if (wsGet.status !== 200) {
+    if (wsGet.status !== 404) {
+      throw new Error(
+        `GeoServer 检查工作区失败 HTTP ${wsGet.status}: ${typeof wsGet.data === "string" ? wsGet.data.slice(0, 300) : ""}`
+      );
+    }
+    const wsPost = await axios.post(
+      `${baseUrl}/rest/workspaces`,
+      `<workspace><name>${WORKSPACE}</name></workspace>`,
+      {
+        auth,
+        headers: { "Content-Type": "application/xml" },
+        validateStatus: () => true
+      }
+    );
+    if (wsPost.status < 200 || wsPost.status >= 300) {
+      if (wsPost.status === 409) {
+        /* 并发下可能已存在 */
+      } else {
+        throw new Error(
+          `GeoServer 创建工作区失败 HTTP ${wsPost.status}: ${typeof wsPost.data === "string" ? wsPost.data.slice(0, 400) : JSON.stringify(wsPost.data).slice(0, 400)}`
+        );
+      }
+    }
+  }
+
+  const dsUrl = `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}.json`;
+  const dsGet = await axios.get(dsUrl, { auth, validateStatus: () => true });
+  if (dsGet.status === 200) return;
+  if (dsGet.status !== 404) {
+    throw new Error(
+      `GeoServer 检查数据存储失败 HTTP ${dsGet.status}: ${typeof dsGet.data === "string" ? dsGet.data.slice(0, 300) : ""}`
+    );
+  }
+
+  const host = escapeXml(e.postgresHost);
+  const port = String(e.postgresPort);
+  const database = escapeXml(e.postgresDb);
+  const dbUser = escapeXml(e.postgresUser);
+  const dbPass = escapeXml(e.postgresPassword);
+
+  const dsXml = `<dataStore>
+  <name>${DATASTORE}</name>
+  <connectionParameters>
+    <host>${host}</host>
+    <port>${port}</port>
+    <database>${database}</database>
+    <user>${dbUser}</user>
+    <passwd>${dbPass}</passwd>
+    <dbtype>postgis</dbtype>
+  </connectionParameters>
+</dataStore>`;
+
+  const dsPost = await axios.post(
+    `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores`,
+    dsXml,
+    {
+      auth,
+      headers: { "Content-Type": "application/xml" },
+      validateStatus: () => true
+    }
+  );
+  if (dsPost.status >= 200 && dsPost.status < 300) return;
+  if (dsPost.status === 409) return;
+  throw new Error(
+    `GeoServer 创建 PostGIS 数据存储失败 HTTP ${dsPost.status}: ${typeof dsPost.data === "string" ? dsPost.data.slice(0, 500) : JSON.stringify(dsPost.data).slice(0, 500)}`
+  );
+}
+
+async function geoserverDeleteFeatureType(
+  baseUrl: string,
+  user: string,
+  pass: string,
+  layerName: string
+): Promise<void> {
+  const url = `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes/${encodeURIComponent(layerName)}`;
+  try {
+    await axios.delete(url, {
+      auth: { username: user, password: pass },
+      validateStatus: s => s < 500
+    });
+  } catch {
+    /* 忽略网络错误，创建阶段会再失败 */
+  }
+}
+
+async function geoserverCreateFeatureType(
+  baseUrl: string,
+  user: string,
+  pass: string,
+  tableName: string
+): Promise<void> {
+  const url = `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes`;
+  const xml = `<featureType>
+  <name>${tableName}</name>
+  <nativeName>${tableName}</nativeName>
+  <srs>EPSG:4326</srs>
+  <nativeCRS>EPSG:4326</nativeCRS>
+  <projectionPolicy>REPROJECT_TO_DECLARED</projectionPolicy>
+</featureType>`;
+  const res = await axios.post(url, xml, {
+    auth: { username: user, password: pass },
+    headers: { "Content-Type": "application/xml" },
+    validateStatus: () => true
+  });
+  if (res.status >= 200 && res.status < 300) return;
+  throw new Error(
+    `GeoServer 发布失败 HTTP ${res.status}: ${typeof res.data === "string" ? res.data.slice(0, 500) : JSON.stringify(res.data).slice(0, 500)}`
+  );
+}
+
+export async function publishCsvFromOss(body: PublishCsvBody): Promise<PublishCsvResult> {
+  if (!isMapPublishConfigured()) {
+    throw new Error(
+      "发布功能未配置：请设置 POSTGRES_*、ALIYUN_OSS_BUCKET、ALIYUN_OSS_REGION、ALIYUN_ACCESS_KEY_*、GEOSERVER_INTERNAL_URL、GEOSERVER_USER、GEOSERVER_PASSWORD"
+    );
+  }
+  const e = readEnv();
+  assertSafeObjectKey(body.objectKey.trim(), e.uploadPrefix);
+  const tableName = toCsvTableName(body.tableBase);
+
+  const raw = await fetchOssBuffer(body.objectKey.trim());
+  const text = raw.toString("utf8");
+  const records = parse(text, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    relax_column_count: true
+  }) as Record<string, string>[];
+
+  if (!records.length) {
+    throw new Error("CSV 无数据行");
+  }
+  const headers = Object.keys(records[0]);
+  const lonCol = pickColumn(headers, body.lonColumn, LON_ALIASES);
+  const latCol = pickColumn(headers, body.latColumn, LAT_ALIASES);
+  let nameCol: string | null = null;
+  if (body.nameColumn?.trim()) {
+    nameCol = pickColumn(headers, body.nameColumn, []);
+  } else {
+    try {
+      nameCol = pickColumn(headers, undefined, NAME_ALIASES);
+    } catch {
+      nameCol = null;
+    }
+  }
+
+  const poolInst = getPool();
+  const client = await poolInst.connect();
+  let inserted = 0;
+  let skipped = 0;
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DROP TABLE IF EXISTS ${pg.escapeIdentifier(tableName)} CASCADE`
+    );
+    await client.query(`
+      CREATE TABLE ${pg.escapeIdentifier(tableName)} (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        geom geometry(Point, 4326)
+      )
+    `);
+    await client.query(
+      `CREATE INDEX ${pg.escapeIdentifier(`${tableName}_geom_gix`)} ON ${pg.escapeIdentifier(tableName)} USING GIST (geom)`
+    );
+
+    for (const row of records) {
+      const lon = Number(String(row[lonCol] ?? "").replace(",", "."));
+      const lat = Number(String(row[latCol] ?? "").replace(",", "."));
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+        skipped++;
+        continue;
+      }
+      if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+        skipped++;
+        continue;
+      }
+      const nm =
+        nameCol && row[nameCol] != null && String(row[nameCol]).trim() !== ""
+          ? String(row[nameCol]).slice(0, 512)
+          : null;
+      await client.query(
+        `INSERT INTO ${pg.escapeIdentifier(tableName)} (name, geom) VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326))`,
+        [nm, lon, lat]
+      );
+      inserted++;
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  if (inserted === 0) {
+    throw new Error("没有有效经纬度行可写入（请检查列名与数值）");
+  }
+
+  await geoserverEnsureWorkspaceAndStore(e);
+
+  await geoserverDeleteFeatureType(
+    e.geoserverUrl,
+    e.geoserverUser,
+    e.geoserverPassword,
+    tableName
+  );
+  await geoserverCreateFeatureType(
+    e.geoserverUrl,
+    e.geoserverUser,
+    e.geoserverPassword,
+    tableName
+  );
+
+  return {
+    tableName,
+    workspace: WORKSPACE,
+    datastore: DATASTORE,
+    layerName: tableName,
+    rowsInserted: inserted,
+    rowsSkipped: skipped,
+    wmsLayersParam: `${WORKSPACE}:${tableName}`
+  };
+}
