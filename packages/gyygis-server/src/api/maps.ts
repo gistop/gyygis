@@ -1,11 +1,70 @@
 import { Router } from "express";
 import {
+  deleteLayerAndTable,
+  listPostgisStoreLayers,
+  setLayerEnabled
+} from "../services/geoserverLayerCatalog.js";
+import {
   isMapPublishConfigured,
   publishCsvFromOss,
   type PublishCsvBody
 } from "../services/mapPublishFromOss.js";
 
 export const mapsRouter = Router();
+
+/** GET /api/maps/layers — postgis_store 中已发布的图层及启用状态 */
+mapsRouter.get("/layers", async (_req, res) => {
+  if (!isMapPublishConfigured()) {
+    res.status(503).json({ error: "地图服务未配置" });
+    return;
+  }
+  try {
+    const layers = await listPostgisStoreLayers();
+    res.json({ layers });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/layers]", e);
+    res.status(400).json({ error: message || "列出图层失败" });
+  }
+});
+
+/** PATCH /api/maps/layers/:layerName body: { enabled: boolean } */
+mapsRouter.patch("/layers/:layerName", async (req, res) => {
+  if (!isMapPublishConfigured()) {
+    res.status(503).json({ error: "地图服务未配置" });
+    return;
+  }
+  const layerName = req.params.layerName;
+  const enabled = req.body?.enabled;
+  if (typeof enabled !== "boolean") {
+    res.status(400).json({ error: "请求体需包含 enabled: boolean" });
+    return;
+  }
+  try {
+    await setLayerEnabled(decodeURIComponent(layerName), enabled);
+    res.status(204).send();
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/layers PATCH]", e);
+    res.status(400).json({ error: message || "更新失败" });
+  }
+});
+
+/** DELETE /api/maps/layers/:layerName — 删除 GeoServer 图层并 DROP 同名 PostGIS 表 */
+mapsRouter.delete("/layers/:layerName", async (req, res) => {
+  if (!isMapPublishConfigured()) {
+    res.status(503).json({ error: "地图服务未配置" });
+    return;
+  }
+  try {
+    await deleteLayerAndTable(decodeURIComponent(req.params.layerName));
+    res.status(204).send();
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/layers DELETE]", e);
+    res.status(400).json({ error: message || "删除失败" });
+  }
+});
 
 /**
  * POST /api/maps/publish-csv-from-oss

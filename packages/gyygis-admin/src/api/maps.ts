@@ -29,3 +29,32 @@ export function publishCsvFromOss(body: PublishCsvFromOssRequest) {
     }
   );
 }
+
+export type MapLayerInfo = {
+  name: string;
+  enabled: boolean;
+};
+
+export type MapLayersListResponse = {
+  layers: MapLayerInfo[];
+};
+
+/** 列出 geoworkspace / postgis_store 中已发布图层 */
+export function fetchMapLayers() {
+  return http.request<MapLayersListResponse>("get", "/api/maps/layers");
+}
+
+/** 启用 / 停用图层（不删表） */
+export function setMapLayerEnabled(layerName: string, enabled: boolean) {
+  return http.request<void>("patch", `/api/maps/layers/${encodeURIComponent(layerName)}`, {
+    data: { enabled }
+  });
+}
+
+/** 删除 GeoServer 图层并 DROP 同名 PostGIS 表 */
+export function deleteMapLayer(layerName: string) {
+  return http.request<void>(
+    "delete",
+    `/api/maps/layers/${encodeURIComponent(layerName)}`
+  );
+}
