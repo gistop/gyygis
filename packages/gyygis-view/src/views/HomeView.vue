@@ -36,124 +36,62 @@
         :set-dock-theme="setDockTheme"
       />
     </el-drawer>
+    <el-drawer
+      v-model="panelEditDrawerVisible"
+      :title="panelEditDrawerTitle"
+      :direction="panelEditDrawerDirection"
+      size="420px"
+      append-to-body
+      :modal="false"
+      :lock-scroll="false"
+      modal-penetrable
+    >
+      <p class="cornerDrawerBody">
+        当前面板：<code>{{ panelEditPanelId }}</code>
+      </p>
+      <p class="muted panelEditHint">
+        抽屉方向仍按面板在视口中的水平位置自动选择；下方修改后点击「应用到面板」写回 Dockview
+        参数（与布局是否为 3×3 无关）。
+      </p>
+      <div class="panelEditForm">
+        <div class="panelEditForm__label">显示内容</div>
+        <el-radio-group v-model="editPanelMode" class="panelEditRadios">
+          <el-radio-button value="map">地图</el-radio-button>
+          <el-radio-button value="chart">统计图</el-radio-button>
+          <el-radio-button value="table">表格</el-radio-button>
+          <el-radio-button value="image">图片</el-radio-button>
+          <el-radio-button value="auto">占位（自动）</el-radio-button>
+        </el-radio-group>
+        <template v-if="editPanelMode === 'chart'">
+          <div class="panelEditForm__label">图表类型</div>
+          <el-select v-model="editChartKind" style="width: 100%">
+            <el-option label="柱状图" value="bar" />
+            <el-option label="饼图" value="pie" />
+            <el-option label="折线图" value="line" />
+          </el-select>
+        </template>
+        <template v-if="editPanelMode === 'image'">
+          <div class="panelEditForm__label">图片地址（https）</div>
+          <el-input v-model="editImageUrl" type="textarea" :rows="2" placeholder="留空则使用默认演示图" />
+          <p class="muted panelEditHint">留空保存时使用内置占位图 URL。</p>
+        </template>
+        <div class="panelEditActions">
+          <el-button
+            type="primary"
+            :disabled="!panelEditApi || !panelEditGetBusinessParams"
+            @click="applyPanelContentFromDrawer"
+          >
+            应用到面板
+          </el-button>
+        </div>
+      </div>
+    </el-drawer>
   </main>
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, h } from "vue";
 import { DockviewVue } from "dockview-vue";
-import TiandituMapPanel from "@/panels/TiandituMapPanel.vue";
-import EchartsPanel from "@/panels/EchartsPanel.vue";
-import DockviewEmbedTablePanel from "@/panels/DockviewEmbedTablePanel.vue";
-import { isDockviewChartKind } from "@/charts/types";
-
-const TDT_WEB_TK = "";
-
-/** Dockview 面板 api：双击左下角热区切换分组最大化（版本差异用 duck typing） */
-function togglePanelMaximizeFromApi(api: unknown): void {
-  if (!api || typeof api !== "object") return;
-  const a = api as Record<string, unknown>;
-  try {
-    const isMax =
-      typeof a.isMaximized === "function" ? (a.isMaximized as () => boolean)() : false;
-    if (isMax && typeof a.exitMaximized === "function") {
-      (a.exitMaximized as () => void)();
-      return;
-    }
-    if (typeof a.maximize === "function") {
-      (a.maximize as () => void)();
-    }
-  } catch (e) {
-    console.warn("[GridPanel] maximize toggle failed", e);
-  }
-}
-
-type DockviewVuePanelProps = {
-  // dockview-vue 会将真正的业务 params 再包一层：props.params.params
-  params?: Record<string, unknown>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  api?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  containerApi?: any;
-  tabLocation?: unknown;
-};
-
-const GridPanel = defineComponent({
-  name: "GridPanel",
-  props: {
-    params: { type: Object, required: true }
-  },
-  setup(props: { params: unknown }) {
-    const dv = props.params as DockviewVuePanelProps;
-    const panelId = computed(() => {
-      const apiId = (dv.api as { id?: string } | undefined)?.id;
-      if (apiId) return apiId;
-      const pId = (dv.params as { id?: string } | undefined)?.id;
-      return pId ?? "";
-    });
-    const panelTitle = computed(() => {
-      const t = (dv.params as { title?: string } | undefined)?.title;
-      return t ?? panelId.value ?? "Panel";
-    });
-    const kind = computed(() => {
-      return ((dv.params as { kind?: string } | undefined)?.kind ?? "") as string;
-    });
-
-    const chartKindParam = computed(() => {
-      const raw = (dv.params as { chartKind?: string } | undefined)?.chartKind ?? "";
-      return isDockviewChartKind(raw) ? raw : null;
-    });
-
-    const embedKind = computed(() => {
-      return ((dv.params as { embedKind?: string } | undefined)?.embedKind ?? "") as string;
-    });
-
-    const shouldRenderMap = computed(() => kind.value === "tianditu" || panelId.value === "r2c2");
-
-    const shouldRenderChart = computed(() => chartKindParam.value != null);
-
-    const shouldRenderTable = computed(() => embedKind.value === "table");
-
-    const metaSuffix = computed(() => {
-      const parts: string[] = [];
-      if (kind.value) parts.push(kind.value);
-      if (chartKindParam.value) parts.push(`chart:${chartKindParam.value}`);
-      if (embedKind.value) parts.push(`embed:${embedKind.value}`);
-      return parts.length ? ` · ${parts.join(" · ")}` : "";
-    });
-
-    return () =>
-      h("section", { class: "gridPanel" }, [
-        h("header", { class: "gridPanel__header" }, [
-          h("div", { class: "gridPanel__title" }, panelTitle.value),
-          h(
-            "div",
-            { class: "gridPanel__meta" },
-            panelId.value ? `id: ${panelId.value}${metaSuffix.value}` : ""
-          )
-        ]),
-        shouldRenderMap.value
-          ? h(TiandituMapPanel, { tk: TDT_WEB_TK })
-          : shouldRenderChart.value
-            ? h(EchartsPanel, { chartKind: chartKindParam.value! })
-            : shouldRenderTable.value
-              ? h(DockviewEmbedTablePanel)
-              : h("div", { class: "gridPanel__body" }, [
-                  h("div", { class: "gridPanel__hint" }, "Dockview 3×3 网格示例")
-                ]),
-        h("div", {
-          class: "panelMaximizeHotspot",
-          title: "双击：最大化 / 再双击恢复",
-          ariaHidden: "true",
-          onDblclick: (e: MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            togglePanelMaximizeFromApi(dv.api);
-          }
-        })
-      ]);
-  }
-});
+import GridPanel from "@/panels/DockviewGridPanel.vue";
 
 export default {
   components: {
@@ -164,10 +102,27 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { onBeforeUnmount as onBeforeUnmountSetup, ref as refSetup, type Ref } from "vue";
-import type { DockviewApi, DockviewReadyEvent } from "dockview-core";
+import {
+  onBeforeUnmount as onBeforeUnmountSetup,
+  provide,
+  ref as refSetup,
+  type Ref
+} from "vue";
+import type {
+  DockviewApi,
+  DockviewPanelApi,
+  DockviewReadyEvent
+} from "dockview-core";
 import { useDockviewThemeSettings } from "@/composables/useDockviewThemeSettings";
 import DockviewThemeSettings from "@/panels/DockviewThemeSettings.vue";
+import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
+import type { DockviewChartKind } from "@/charts/types";
+import { isDockviewChartKind } from "@/charts/types";
+import {
+  getEffectivePanelContent,
+  mergePanelContentParams,
+  type PanelContentRadio
+} from "@/panelContentMode";
 
 const dockviewApi: Ref<DockviewApi | null> = refSetup(null);
 const homeRoot = refSetup<HTMLElement | null>(null);
@@ -196,6 +151,65 @@ const cornerLongPressTimer = refSetup<number | null>(null);
 const cornerLongPressFired = refSetup(false);
 const cornerDrawerVisible = refSetup(false);
 const cornerDrawerMessage = refSetup("");
+
+const panelEditDrawerVisible = refSetup(false);
+const panelEditDrawerTitle = refSetup("");
+const panelEditPanelId = refSetup("");
+const panelEditDrawerDirection = refSetup<"ltr" | "rtl">("rtl");
+const panelEditApi = refSetup<DockviewPanelApi | null>(null);
+const panelEditGetBusinessParams = refSetup<(() => Record<string, unknown>) | null>(null);
+
+const editPanelMode = refSetup<PanelContentRadio>("auto");
+const editChartKind = refSetup<DockviewChartKind>("bar");
+const editImageUrl = refSetup("");
+
+function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
+  const p = getBusinessParams();
+  const pc = p.panelContent;
+  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image") {
+    editPanelMode.value = pc;
+  } else {
+    const eff = getEffectivePanelContent(p, panelId);
+    editPanelMode.value = eff === "none" ? "auto" : (eff as PanelContentRadio);
+  }
+  const rawCk = p.chartKind;
+  editChartKind.value = isDockviewChartKind(String(rawCk ?? ""))
+    ? (rawCk as DockviewChartKind)
+    : "bar";
+  editImageUrl.value = typeof p.imageUrl === "string" ? p.imageUrl : "";
+}
+
+function applyPanelContentFromDrawer() {
+  const api = panelEditApi.value;
+  const getP = panelEditGetBusinessParams.value;
+  if (!api || !getP) return;
+  const base = { ...getP() };
+  const next = mergePanelContentParams(base, editPanelMode.value, {
+    chartKind: editChartKind.value,
+    imageUrl: editImageUrl.value
+  });
+  api.updateParameters(next);
+}
+
+function openPanelEditDrawer(
+  panelRootEl: HTMLElement,
+  panelId: string,
+  title: string,
+  panelApi: DockviewPanelApi,
+  getBusinessParams: () => Record<string, unknown>
+) {
+  const rect = panelRootEl.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  panelEditDrawerDirection.value = cx < window.innerWidth / 2 ? "rtl" : "ltr";
+  panelEditPanelId.value = panelId;
+  panelEditDrawerTitle.value = title ? `编辑：${title}` : "编辑面板";
+  panelEditApi.value = panelApi;
+  panelEditGetBusinessParams.value = getBusinessParams;
+  syncPanelEditFormFromApi(getBusinessParams, panelId);
+  panelEditDrawerVisible.value = true;
+}
+
+provide(PANEL_EDIT_INJECTION_KEY, openPanelEditDrawer);
 
 function triggerCornerAlert(reason: "multi-tap" | "long-press") {
   cornerTapTs.value = [];
@@ -333,6 +347,8 @@ function onReady(event: DockviewReadyEvent) {
 
 onBeforeUnmountSetup(() => {
   dockviewApi.value = null;
+  panelEditApi.value = null;
+  panelEditGetBusinessParams.value = null;
   cornerTapTs.value = [];
   clearCornerLongPressTimer();
 });
@@ -406,6 +422,26 @@ onBeforeUnmountSetup(() => {
   font-size: 14px;
   line-height: 1.6;
 }
+
+.panelEditHint {
+  margin: 0 0 14px;
+}
+
+.panelEditForm__label {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 12px 0 8px;
+}
+
+.panelEditRadios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panelEditActions {
+  margin-top: 18px;
+}
 </style>
 
 <style>
@@ -425,6 +461,22 @@ onBeforeUnmountSetup(() => {
 .panelMaximizeHotspot {
   position: absolute;
   left: 0;
+  bottom: 0;
+  width: 56px;
+  height: 56px;
+  z-index: 30;
+  background: transparent;
+  cursor: default;
+  pointer-events: auto;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 右下角隐形热区：连点或长按打开本面板编辑抽屉（不依赖固定网格布局） */
+.panelEditHotspot {
+  position: absolute;
+  right: 0;
   bottom: 0;
   width: 56px;
   height: 56px;
@@ -470,6 +522,30 @@ onBeforeUnmountSetup(() => {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);
   pointer-events: auto;
+}
+
+.gridPanel__imgWrap {
+  margin-top: 10px;
+  flex: 1;
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gridPanel__img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  user-select: none;
 }
 
 .tdtMap {
