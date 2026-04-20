@@ -17,6 +17,7 @@ import { bg, avatar, illustration } from "./utils/static";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import { useTranslationLang } from "@/layout/hooks/useTranslationLang";
 import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
+import { registerApi } from "@/api/user";
 
 import dayIcon from "@/assets/svg/day.svg?component";
 import darkIcon from "@/assets/svg/dark.svg?component";
@@ -46,8 +47,8 @@ const { title, getDropdownItemStyle, getDropdownItemClass } = useNav();
 const { locale, translationCh, translationEn } = useTranslationLang();
 
 const ruleForm = reactive({
-  username: "admin",
-  password: "admin123"
+  username: "",
+  password: ""
 });
 
 /** 注册表单占位数据，仅用于界面展示 */
@@ -56,6 +57,46 @@ const registerForm = reactive({
   password: "",
   confirmPassword: ""
 });
+
+const onRegister = async () => {
+  const username = registerForm.username?.trim();
+  const password = registerForm.password;
+  const confirmPassword = registerForm.confirmPassword;
+  if (!username) {
+    message("请输入用户名", { type: "warning" });
+    return;
+  }
+  if (!password) {
+    message("请输入密码", { type: "warning" });
+    return;
+  }
+  if (confirmPassword !== password) {
+    message("两次密码不一致", { type: "warning" });
+    return;
+  }
+
+  loading.value = true;
+  try {
+    const res = await registerApi({
+      username,
+      password,
+      confirmPassword
+    });
+    if (!res?.success) {
+      message(res?.error || "注册失败", { type: "error" });
+      return;
+    }
+    message("注册成功，请登录", { type: "success" });
+    ruleForm.username = username;
+    ruleForm.password = password;
+    activeTab.value = "login";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    message(msg || "注册失败", { type: "error" });
+  } finally {
+    loading.value = false;
+  }
+};
 
 const onLogin = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
@@ -256,6 +297,9 @@ useEventListener(document, "keydown", ({ code }) => {
                     size="default"
                     type="primary"
                     native-type="button"
+                    :loading="loading"
+                    :disabled="disabled"
+                    @click="onRegister"
                   >
                     {{ t("login.pureRegister") }}
                   </el-button>
