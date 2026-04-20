@@ -33,6 +33,8 @@ const router = useRouter();
 const loading = ref(false);
 const disabled = ref(false);
 const ruleFormRef = ref<FormInstance>();
+/** 登录 / 注册 页签（注册仅为占位展示，无业务逻辑） */
+const activeTab = ref<"login" | "register">("login");
 
 const { initStorage } = useLayout();
 initStorage();
@@ -46,6 +48,13 @@ const { locale, translationCh, translationEn } = useTranslationLang();
 const ruleForm = reactive({
   username: "admin",
   password: "admin123"
+});
+
+/** 注册表单占位数据，仅用于界面展示 */
+const registerForm = reactive({
+  username: "",
+  password: "",
+  confirmPassword: ""
 });
 
 const onLogin = async (formEl: FormInstance | undefined) => {
@@ -87,6 +96,7 @@ const immediateDebounce: any = debounce(
 
 useEventListener(document, "keydown", ({ code }) => {
   if (
+    activeTab.value === "login" &&
     ["Enter", "NumpadEnter"].includes(code) &&
     !disabled.value &&
     !loading.value
@@ -151,57 +161,109 @@ useEventListener(document, "keydown", ({ code }) => {
             <h2 class="outline-hidden">{{ title }}</h2>
           </Motion>
 
-          <el-form
-            ref="ruleFormRef"
-            :model="ruleForm"
-            :rules="loginRules"
-            size="large"
-          >
-            <Motion :delay="100">
-              <el-form-item
-                :rules="[
-                  {
-                    required: true,
-                    message: transformI18n($t('login.pureUsernameReg')),
-                    trigger: 'blur'
-                  }
-                ]"
-                prop="username"
+          <el-tabs v-model="activeTab" class="login-tabs" stretch>
+            <el-tab-pane :label="t('login.pureLogin')" name="login">
+              <el-form
+                ref="ruleFormRef"
+                :model="ruleForm"
+                :rules="loginRules"
+                size="large"
               >
-                <el-input
-                  v-model="ruleForm.username"
-                  clearable
-                  :placeholder="t('login.pureUsername')"
-                  :prefix-icon="useRenderIcon(User)"
-                />
-              </el-form-item>
-            </Motion>
+                <Motion :delay="100">
+                  <el-form-item
+                    :rules="[
+                      {
+                        required: true,
+                        message: transformI18n($t('login.pureUsernameReg')),
+                        trigger: 'blur'
+                      }
+                    ]"
+                    prop="username"
+                  >
+                    <el-input
+                      v-model="ruleForm.username"
+                      clearable
+                      :placeholder="t('login.pureUsername')"
+                      :prefix-icon="useRenderIcon(User)"
+                    />
+                  </el-form-item>
+                </Motion>
 
-            <Motion :delay="150">
-              <el-form-item prop="password">
-                <el-input
-                  v-model="ruleForm.password"
-                  clearable
-                  show-password
-                  :placeholder="t('login.purePassword')"
-                  :prefix-icon="useRenderIcon(Lock)"
-                />
-              </el-form-item>
-            </Motion>
+                <Motion :delay="150">
+                  <el-form-item prop="password">
+                    <el-input
+                      v-model="ruleForm.password"
+                      clearable
+                      show-password
+                      :placeholder="t('login.purePassword')"
+                      :prefix-icon="useRenderIcon(Lock)"
+                    />
+                  </el-form-item>
+                </Motion>
 
-            <Motion :delay="250">
-              <el-button
-                class="w-full mt-4!"
-                size="default"
-                type="primary"
-                :loading="loading"
-                :disabled="disabled"
-                @click="onLogin(ruleFormRef)"
-              >
-                {{ t("login.pureLogin") }}
-              </el-button>
-            </Motion>
-          </el-form>
+                <Motion :delay="250">
+                  <el-button
+                    class="w-full mt-4!"
+                    size="default"
+                    type="primary"
+                    :loading="loading"
+                    :disabled="disabled"
+                    @click="onLogin(ruleFormRef)"
+                  >
+                    {{ t("login.pureLogin") }}
+                  </el-button>
+                </Motion>
+              </el-form>
+            </el-tab-pane>
+
+            <el-tab-pane :label="t('login.pureRegisterTab')" name="register">
+              <el-form :model="registerForm" size="large" class="register-form">
+                <Motion :delay="100">
+                  <el-form-item>
+                    <el-input
+                      v-model="registerForm.username"
+                      clearable
+                      :placeholder="t('login.pureUsername')"
+                      :prefix-icon="useRenderIcon(User)"
+                    />
+                  </el-form-item>
+                </Motion>
+                <Motion :delay="150">
+                  <el-form-item>
+                    <el-input
+                      v-model="registerForm.password"
+                      clearable
+                      show-password
+                      :placeholder="t('login.purePassword')"
+                      :prefix-icon="useRenderIcon(Lock)"
+                    />
+                  </el-form-item>
+                </Motion>
+                <Motion :delay="200">
+                  <el-form-item>
+                    <el-input
+                      v-model="registerForm.confirmPassword"
+                      clearable
+                      show-password
+                      :placeholder="t('login.pureConfirmPassword')"
+                      :prefix-icon="useRenderIcon(Lock)"
+                    />
+                  </el-form-item>
+                </Motion>
+                <Motion :delay="250">
+                  <el-button
+                    class="w-full mt-4!"
+                    size="default"
+                    type="primary"
+                    native-type="button"
+                  >
+                    {{ t("login.pureRegister") }}
+                  </el-button>
+                  <p class="register-tip">{{ t("login.pureRegisterTip") }}</p>
+                </Motion>
+              </el-form>
+            </el-tab-pane>
+          </el-tabs>
         </div>
       </div>
     </div>
@@ -213,6 +275,41 @@ useEventListener(document, "keydown", ({ code }) => {
 </style>
 
 <style lang="scss" scoped>
+.login-tabs {
+  :deep(.el-tabs__header) {
+    margin-bottom: 18px;
+  }
+
+  :deep(.el-tabs__nav-wrap::after) {
+    height: 1px;
+  }
+
+  :deep(.el-tabs__item) {
+    flex: 1;
+    padding: 0 12px;
+    font-size: 15px;
+  }
+
+  :deep(.el-tabs__nav) {
+    width: 100%;
+  }
+
+  :deep(.el-tabs__active-bar) {
+    transition: transform 0.25s ease;
+  }
+}
+
+.register-form {
+  text-align: left;
+}
+
+.register-tip {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+
 :deep(.el-input-group__append, .el-input-group__prepend) {
   padding: 0;
 }

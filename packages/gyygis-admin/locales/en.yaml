@@ -86,6 +86,10 @@ login:
   pureUsername: Username
   purePassword: Password
   pureLogin: Login
+  pureRegisterTab: Register
+  pureRegister: Register
+  pureConfirmPassword: Confirm Password
+  pureRegisterTip: Registration will be available soon
   pureLoginSuccess: Login Success
   pureLoginFail: Login Fail
   pureUsernameReg: Please enter username
