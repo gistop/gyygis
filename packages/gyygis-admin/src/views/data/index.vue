@@ -181,7 +181,8 @@ async function handlePublishMap() {
     <el-tabs v-model="activeTab" class="data-tabs" @tab-change="onDataTabChange">
       <el-tab-pane label="数据上传" name="upload" lazy>
         <p class="mb-4 text-secondary text-sm">
-          使用 STS 临时凭证直传阿里云 OSS（需启动 gyygis-server 并配置 RAM/OSS 环境变量）。
+          使用 STS 临时凭证直传阿里云 OSS（需先登录；并启动 gyygis-server 且配置 RAM/OSS 环境变量）。
+          上传路径会落在当前用户目录：<code class="mx-1 rounded bg-fill px-1">uploads/u_&lt;用户ID&gt;/</code>。
           若浏览器报 CORS：请在 OSS 控制台该 Bucket 的「跨域设置」中允许来源
           <code class="mx-1 rounded bg-fill px-1">http://localhost:8848</code>
           （生产环境改为管理端域名），并允许 PUT/POST/GET/HEAD 及必要 Header。
@@ -199,8 +200,9 @@ async function handlePublishMap() {
 
       <el-tab-pane label="地图发布" name="publish" lazy>
         <p class="mb-4 text-secondary text-sm">
-          服务端从 OSS 读取 CSV，写入 PostGIS 表 <code>gyy_csv_*</code>，并调用 GeoServer REST 发布到工作区
-          <code>geoworkspace</code> / 数据存储 <code>postgis_store</code>。请确保 Docker Compose 中
+          服务端从 OSS 读取 CSV，写入当前用户 PostGIS schema（<code>u_&lt;用户ID&gt;</code>）下的表
+          <code>gyy_csv_*</code>，并调用 GeoServer REST 发布到当前用户工作区（同名
+          <code>u_&lt;用户ID&gt;</code>）/ 数据存储 <code>postgis_store</code>。请确保 Docker Compose 中
           <code>api / postgis / geoserver</code> 已启动，且 RAM 账号具备 OSS 读权限。
         </p>
         <p class="mb-3 text-secondary text-sm">
@@ -237,8 +239,8 @@ async function handlePublishMap() {
       <el-tab-pane label="地图服务管理" name="layers" lazy>
         <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p class="text-secondary text-sm">
-            列出 GeoServer <code>postgis_store</code> 中已发布图层；停用后不再对外提供 WMS/WFS；删除会同时移除图层并
-            <strong>DROP</strong> PostGIS 同名表（含 <code>gyy_points</code>，请谨慎）。
+            列出当前用户在 GeoServer <code>postgis_store</code> 中已发布图层；停用后不再对外提供 WMS/WFS；删除会同时移除图层并
+            <strong>DROP</strong> 当前用户 schema 下同名表（请谨慎）。
           </p>
           <el-button :loading="layersLoading" @click="loadMapLayers">刷新列表</el-button>
         </div>

@@ -1,9 +1,7 @@
 import axios from "axios";
 import pg from "pg";
-import { isMapPublishConfigured } from "./mapPublishFromOss.js";
-
-const WORKSPACE = "geoworkspace";
-const DATASTORE = "postgis_store";
+import { isGeoMapsConfigured } from "./mapPublishFromOss.js";
+import { tenantDatastoreName } from "./tenant.js";
 
 function readGsEnv() {
   const postgresHost = process.env.POSTGRES_HOST ?? "";
@@ -73,12 +71,16 @@ function getPool(): pg.Pool {
   return pool;
 }
 
-export async function listPostgisStoreLayers(): Promise<CatalogLayerRow[]> {
-  if (!isMapPublishConfigured()) {
+export async function listPostgisStoreLayers(workspace: string): Promise<CatalogLayerRow[]> {
+  if (!isGeoMapsConfigured()) {
     throw new Error("地图服务未配置");
   }
+  if (!/^u_[1-9][0-9]*$/.test(workspace)) {
+    throw new Error("非法 workspace");
+  }
   const e = readGsEnv();
-  const listUrl = `${e.geoserverUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes.json`;
+  const DATASTORE = tenantDatastoreName();
+  const listUrl = `${e.geoserverUrl}/rest/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(DATASTORE)}/featuretypes.json`;
   const listRes = await axios.get(listUrl, {
     auth: auth(e.geoserverUser, e.geoserverPassword),
     validateStatus: () => true
@@ -91,7 +93,7 @@ export async function listPostgisStoreLayers(): Promise<CatalogLayerRow[]> {
   const names = normalizeFtList(listRes.data);
   const rows: CatalogLayerRow[] = [];
   for (const name of names) {
-    const layerUrl = `${e.geoserverUrl}/rest/workspaces/${WORKSPACE}/layers/${encodeURIComponent(name)}.json`;
+    const layerUrl = `${e.geoserverUrl}/rest/workspaces/${encodeURIComponent(workspace)}/layers/${encodeURIComponent(name)}.json`;
     const lr = await axios.get(layerUrl, {
       auth: auth(e.geoserverUser, e.geoserverPassword),
       validateStatus: () => true
@@ -107,13 +109,16 @@ export async function listPostgisStoreLayers(): Promise<CatalogLayerRow[]> {
   return rows;
 }
 
-export async function setLayerEnabled(layerName: string, enabled: boolean): Promise<void> {
-  if (!isMapPublishConfigured()) {
+export async function setLayerEnabled(workspace: string, layerName: string, enabled: boolean): Promise<void> {
+  if (!isGeoMapsConfigured()) {
     throw new Error("地图服务未配置");
+  }
+  if (!/^u_[1-9][0-9]*$/.test(workspace)) {
+    throw new Error("非法 workspace");
   }
   assertSafeLayerName(layerName);
   const e = readGsEnv();
-  const layerUrl = `${e.geoserverUrl}/rest/workspaces/${WORKSPACE}/layers/${encodeURIComponent(layerName)}.json`;
+  const layerUrl = `${e.geoserverUrl}/rest/workspaces/${encodeURIComponent(workspace)}/layers/${encodeURIComponent(layerName)}.json`;
   const getRes = await axios.get(layerUrl, {
     auth: auth(e.geoserverUser, e.geoserverPassword),
     validateStatus: () => true
@@ -138,7 +143,7 @@ export async function setLayerEnabled(layerName: string, enabled: boolean): Prom
   }
   const next = minimal;
   const putRes = await axios.put(
-    `${e.geoserverUrl}/rest/workspaces/${WORKSPACE}/layers/${encodeURIComponent(layerName)}`,
+    `${e.geoserverUrl}/rest/workspaces/${encodeURIComponent(workspace)}/layers/${encodeURIComponent(layerName)}`,
     { layer: next },
     {
       auth: auth(e.geoserverUser, e.geoserverPassword),
@@ -153,13 +158,17 @@ export async function setLayerEnabled(layerName: string, enabled: boolean): Prom
   }
 }
 
-export async function deleteLayerAndTable(layerName: string): Promise<void> {
-  if (!isMapPublishConfigured()) {
+export async function deleteLayerAndTable(schema: string, workspace: string, layerName: string): Promise<void> {
+  if (!isGeoMapsConfigured()) {
     throw new Error("地图服务未配置");
+  }
+  if (!/^u_[1-9][0-9]*$/.test(schema) || schema !== workspace) {
+    throw new Error("非法 schema/workspace");
   }
   assertSafeLayerName(layerName);
   const e = readGsEnv();
-  const ftUrl = `${e.geoserverUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes/${encodeURIComponent(layerName)}?recurse=true`;
+  const DATASTORE = tenantDatastoreName();
+  const ftUrl = `${e.geoserverUrl}/rest/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(DATASTORE)}/featuretypes/${encodeURIComponent(layerName)}?recurse=true`;
   const delRes = await axios.delete(ftUrl, {
     auth: auth(e.geoserverUser, e.geoserverPassword),
     validateStatus: () => true
@@ -170,5 +179,7 @@ export async function deleteLayerAndTable(layerName: string): Promise<void> {
     );
   }
   const poolInst = getPool();
-  await poolInst.query(`DROP TABLE IF EXISTS ${pg.escapeIdentifier(layerName)} CASCADE`);
+  await poolInst.query(
+    `DROP TABLE IF EXISTS ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(layerName)} CASCADE`
+  );
 }

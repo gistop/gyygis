@@ -2,9 +2,7 @@ import OSS from "ali-oss";
 import { parse } from "csv-parse/sync";
 import axios from "axios";
 import pg from "pg";
-
-const WORKSPACE = "geoworkspace";
-const DATASTORE = "postgis_store";
+import { tenantDatastoreName } from "./tenant.js";
 
 const LON_ALIASES = ["lon", "lng", "longitude", "x", "经度"];
 const LAT_ALIASES = ["lat", "latitude", "y", "纬度"];
@@ -17,6 +15,16 @@ export type PublishCsvBody = {
   lonColumn?: string;
   latColumn?: string;
   nameColumn?: string;
+};
+
+export type PublishCsvContext = {
+  userId: number;
+  /** PostGIS schema，例如 u_12 */
+  schema: string;
+  /** GeoServer workspace，例如 u_12 */
+  workspace: string;
+  /** 允许写入的 OSS objectKey 前缀，例如 uploads/u_12/ */
+  uploadPrefix: string;
 };
 
 export type PublishCsvResult = {
@@ -83,6 +91,14 @@ export function isMapPublishConfigured(): boolean {
       e.accessKeySecret &&
       e.geoserverUrl &&
       e.geoserverUser
+  );
+}
+
+/** 列出/启停图层只需要 PostGIS + GeoServer（不依赖 OSS AK） */
+export function isGeoMapsConfigured(): boolean {
+  const e = readEnv();
+  return Boolean(
+    e.postgresHost && e.postgresUser && e.postgresDb && e.geoserverUrl && e.geoserverUser && e.geoserverPassword
   );
 }
 
@@ -179,88 +195,15 @@ const geoserverAuth = (user: string, pass: string) => ({
 /**
  * 若 init 未跑完或缺失，则通过 REST 自动创建 geoworkspace 与 postgis_store（与 deploy/geoserver/init/init.sh 一致）
  */
-async function geoserverEnsureWorkspaceAndStore(e: GeoEnv): Promise<void> {
-  const { geoserverUrl: baseUrl, geoserverUser: user, geoserverPassword: pass } = e;
-  const auth = geoserverAuth(user, pass);
-
-  const wsUrl = `${baseUrl}/rest/workspaces/${WORKSPACE}.json`;
-  const wsGet = await axios.get(wsUrl, { auth, validateStatus: () => true });
-  if (wsGet.status !== 200) {
-    if (wsGet.status !== 404) {
-      throw new Error(
-        `GeoServer 检查工作区失败 HTTP ${wsGet.status}: ${typeof wsGet.data === "string" ? wsGet.data.slice(0, 300) : ""}`
-      );
-    }
-    const wsPost = await axios.post(
-      `${baseUrl}/rest/workspaces`,
-      `<workspace><name>${WORKSPACE}</name></workspace>`,
-      {
-        auth,
-        headers: { "Content-Type": "application/xml" },
-        validateStatus: () => true
-      }
-    );
-    if (wsPost.status < 200 || wsPost.status >= 300) {
-      if (wsPost.status === 409) {
-        /* 并发下可能已存在 */
-      } else {
-        throw new Error(
-          `GeoServer 创建工作区失败 HTTP ${wsPost.status}: ${typeof wsPost.data === "string" ? wsPost.data.slice(0, 400) : JSON.stringify(wsPost.data).slice(0, 400)}`
-        );
-      }
-    }
-  }
-
-  const dsUrl = `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}.json`;
-  const dsGet = await axios.get(dsUrl, { auth, validateStatus: () => true });
-  if (dsGet.status === 200) return;
-  if (dsGet.status !== 404) {
-    throw new Error(
-      `GeoServer 检查数据存储失败 HTTP ${dsGet.status}: ${typeof dsGet.data === "string" ? dsGet.data.slice(0, 300) : ""}`
-    );
-  }
-
-  const host = escapeXml(e.postgresHost);
-  const port = String(e.postgresPort);
-  const database = escapeXml(e.postgresDb);
-  const dbUser = escapeXml(e.postgresUser);
-  const dbPass = escapeXml(e.postgresPassword);
-
-  const dsXml = `<dataStore>
-  <name>${DATASTORE}</name>
-  <connectionParameters>
-    <host>${host}</host>
-    <port>${port}</port>
-    <database>${database}</database>
-    <user>${dbUser}</user>
-    <passwd>${dbPass}</passwd>
-    <dbtype>postgis</dbtype>
-  </connectionParameters>
-</dataStore>`;
-
-  const dsPost = await axios.post(
-    `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores`,
-    dsXml,
-    {
-      auth,
-      headers: { "Content-Type": "application/xml" },
-      validateStatus: () => true
-    }
-  );
-  if (dsPost.status >= 200 && dsPost.status < 300) return;
-  if (dsPost.status === 409) return;
-  throw new Error(
-    `GeoServer 创建 PostGIS 数据存储失败 HTTP ${dsPost.status}: ${typeof dsPost.data === "string" ? dsPost.data.slice(0, 500) : JSON.stringify(dsPost.data).slice(0, 500)}`
-  );
-}
-
 async function geoserverDeleteFeatureType(
   baseUrl: string,
   user: string,
   pass: string,
+  workspace: string,
+  datastore: string,
   layerName: string
 ): Promise<void> {
-  const url = `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes/${encodeURIComponent(layerName)}`;
+  const url = `${baseUrl}/rest/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(datastore)}/featuretypes/${encodeURIComponent(layerName)}`;
   try {
     await axios.delete(url, {
       auth: { username: user, password: pass },
@@ -275,9 +218,11 @@ async function geoserverCreateFeatureType(
   baseUrl: string,
   user: string,
   pass: string,
+  workspace: string,
+  datastore: string,
   tableName: string
 ): Promise<void> {
-  const url = `${baseUrl}/rest/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes`;
+  const url = `${baseUrl}/rest/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(datastore)}/featuretypes`;
   const xml = `<featureType>
   <name>${tableName}</name>
   <nativeName>${tableName}</nativeName>
@@ -296,15 +241,21 @@ async function geoserverCreateFeatureType(
   );
 }
 
-export async function publishCsvFromOss(body: PublishCsvBody): Promise<PublishCsvResult> {
+export async function publishCsvFromOss(ctx: PublishCsvContext, body: PublishCsvBody): Promise<PublishCsvResult> {
   if (!isMapPublishConfigured()) {
     throw new Error(
       "发布功能未配置：请设置 POSTGRES_*、ALIYUN_OSS_BUCKET、ALIYUN_OSS_REGION、ALIYUN_ACCESS_KEY_*、GEOSERVER_INTERNAL_URL、GEOSERVER_USER、GEOSERVER_PASSWORD"
     );
   }
   const e = readEnv();
-  assertSafeObjectKey(body.objectKey.trim(), e.uploadPrefix);
+  assertSafeObjectKey(body.objectKey.trim(), ctx.uploadPrefix);
   const tableName = toCsvTableName(body.tableBase);
+  const schema = ctx.schema;
+  const workspace = ctx.workspace;
+  const datastore = tenantDatastoreName();
+  if (!/^u_[1-9][0-9]*$/.test(schema) || schema !== workspace) {
+    throw new Error("非法租户 schema/workspace");
+  }
 
   const raw = await fetchOssBuffer(body.objectKey.trim());
   const text = raw.toString("utf8");
@@ -339,17 +290,17 @@ export async function publishCsvFromOss(body: PublishCsvBody): Promise<PublishCs
   try {
     await client.query("BEGIN");
     await client.query(
-      `DROP TABLE IF EXISTS ${pg.escapeIdentifier(tableName)} CASCADE`
+      `DROP TABLE IF EXISTS ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(tableName)} CASCADE`
     );
     await client.query(`
-      CREATE TABLE ${pg.escapeIdentifier(tableName)} (
+      CREATE TABLE ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(tableName)} (
         id SERIAL PRIMARY KEY,
         name TEXT,
         geom geometry(Point, 4326)
       )
     `);
     await client.query(
-      `CREATE INDEX ${pg.escapeIdentifier(`${tableName}_geom_gix`)} ON ${pg.escapeIdentifier(tableName)} USING GIST (geom)`
+      `CREATE INDEX ${pg.escapeIdentifier(`${tableName}_geom_gix`)} ON ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(tableName)} USING GIST (geom)`
     );
 
     for (const row of records) {
@@ -368,7 +319,7 @@ export async function publishCsvFromOss(body: PublishCsvBody): Promise<PublishCs
           ? String(row[nameCol]).slice(0, 512)
           : null;
       await client.query(
-        `INSERT INTO ${pg.escapeIdentifier(tableName)} (name, geom) VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326))`,
+        `INSERT INTO ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(tableName)} (name, geom) VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326))`,
         [nm, lon, lat]
       );
       inserted++;
@@ -385,28 +336,30 @@ export async function publishCsvFromOss(body: PublishCsvBody): Promise<PublishCs
     throw new Error("没有有效经纬度行可写入（请检查列名与数值）");
   }
 
-  await geoserverEnsureWorkspaceAndStore(e);
-
   await geoserverDeleteFeatureType(
     e.geoserverUrl,
     e.geoserverUser,
     e.geoserverPassword,
+    workspace,
+    datastore,
     tableName
   );
   await geoserverCreateFeatureType(
     e.geoserverUrl,
     e.geoserverUser,
     e.geoserverPassword,
+    workspace,
+    datastore,
     tableName
   );
 
   return {
     tableName,
-    workspace: WORKSPACE,
-    datastore: DATASTORE,
+    workspace,
+    datastore,
     layerName: tableName,
     rowsInserted: inserted,
     rowsSkipped: skipped,
-    wmsLayersParam: `${WORKSPACE}:${tableName}`
+    wmsLayersParam: `${workspace}:${tableName}`
   };
 }

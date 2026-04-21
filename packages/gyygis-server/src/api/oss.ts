@@ -2,6 +2,8 @@ import { Router } from "express";
 import * as StsPkg from "@alicloud/sts20150401";
 import { AssumeRoleRequest } from "@alicloud/sts20150401";
 import * as $OpenApi from "@alicloud/openapi-client";
+import { requireAuth } from "../middleware/auth.js";
+import { userOssUploadPrefix } from "../services/tenant.js";
 
 type StsClientInstance = {
   assumeRole(request: AssumeRoleRequest): Promise<{
@@ -44,7 +46,7 @@ function parseDuration(): number {
  * POST /api/oss/sts-credentials
  * 使用 RAM 用户 AK 调用 STS AssumeRole，返回前端直传 OSS 所需临时凭证（及 bucket/region）。
  */
-ossRouter.post("/sts-credentials", async (_req, res) => {
+ossRouter.post("/sts-credentials", requireAuth, async (req, res) => {
   const accessKeyId = process.env.ALIYUN_ACCESS_KEY_ID ?? "";
   const accessKeySecret = process.env.ALIYUN_ACCESS_KEY_SECRET ?? "";
   const roleArn = process.env.ALIYUN_OSS_ROLE_ARN ?? "";
@@ -53,8 +55,7 @@ ossRouter.post("/sts-credentials", async (_req, res) => {
   const ossRegion = process.env.ALIYUN_OSS_REGION ?? "";
   /** STS 接入地域，如 cn-hangzhou（与 bucket 地域对应） */
   const stsRegion = process.env.ALIYUN_STS_REGION ?? "cn-hangzhou";
-  /** 对象 key 前缀，如 uploads/ */
-  const uploadPrefix = process.env.ALIYUN_OSS_UPLOAD_PREFIX ?? "uploads/";
+  const uploadPrefix = userOssUploadPrefix(req.user!.userId);
 
   if (!accessKeyId || !accessKeySecret || !roleArn || !bucket || !ossRegion) {
     res.status(503).json({
@@ -93,7 +94,7 @@ ossRouter.post("/sts-credentials", async (_req, res) => {
     res.json({
       region: ossRegion,
       bucket,
-      uploadPrefix: uploadPrefix.endsWith("/") ? uploadPrefix : `${uploadPrefix}/`,
+      uploadPrefix,
       expiration: credentials.expiration ?? "",
       credentials: {
         accessKeyId: credentials.accessKeyId,

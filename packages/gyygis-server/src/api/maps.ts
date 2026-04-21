@@ -5,21 +5,25 @@ import {
   setLayerEnabled
 } from "../services/geoserverLayerCatalog.js";
 import {
+  isGeoMapsConfigured,
   isMapPublishConfigured,
   publishCsvFromOss,
   type PublishCsvBody
 } from "../services/mapPublishFromOss.js";
+import { requireAuth } from "../middleware/auth.js";
+import { tenantSchemaName, tenantWorkspaceName, userOssUploadPrefix } from "../services/tenant.js";
 
 export const mapsRouter = Router();
 
 /** GET /api/maps/layers — postgis_store 中已发布的图层及启用状态 */
-mapsRouter.get("/layers", async (_req, res) => {
-  if (!isMapPublishConfigured()) {
+mapsRouter.get("/layers", requireAuth, async (req, res) => {
+  if (!isGeoMapsConfigured()) {
     res.status(503).json({ error: "地图服务未配置" });
     return;
   }
   try {
-    const layers = await listPostgisStoreLayers();
+    const ws = tenantWorkspaceName(req.user!.userId);
+    const layers = await listPostgisStoreLayers(ws);
     res.json({ layers });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
@@ -29,8 +33,8 @@ mapsRouter.get("/layers", async (_req, res) => {
 });
 
 /** PATCH /api/maps/layers/:layerName body: { enabled: boolean } */
-mapsRouter.patch("/layers/:layerName", async (req, res) => {
-  if (!isMapPublishConfigured()) {
+mapsRouter.patch("/layers/:layerName", requireAuth, async (req, res) => {
+  if (!isGeoMapsConfigured()) {
     res.status(503).json({ error: "地图服务未配置" });
     return;
   }
@@ -41,7 +45,8 @@ mapsRouter.patch("/layers/:layerName", async (req, res) => {
     return;
   }
   try {
-    await setLayerEnabled(decodeURIComponent(layerName), enabled);
+    const ws = tenantWorkspaceName(req.user!.userId);
+    await setLayerEnabled(ws, decodeURIComponent(layerName), enabled);
     res.status(204).send();
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
@@ -51,13 +56,15 @@ mapsRouter.patch("/layers/:layerName", async (req, res) => {
 });
 
 /** DELETE /api/maps/layers/:layerName — 删除 GeoServer 图层并 DROP 同名 PostGIS 表 */
-mapsRouter.delete("/layers/:layerName", async (req, res) => {
-  if (!isMapPublishConfigured()) {
+mapsRouter.delete("/layers/:layerName", requireAuth, async (req, res) => {
+  if (!isGeoMapsConfigured()) {
     res.status(503).json({ error: "地图服务未配置" });
     return;
   }
   try {
-    await deleteLayerAndTable(decodeURIComponent(req.params.layerName));
+    const schema = tenantSchemaName(req.user!.userId);
+    const ws = tenantWorkspaceName(req.user!.userId);
+    await deleteLayerAndTable(schema, ws, decodeURIComponent(req.params.layerName));
     res.status(204).send();
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
@@ -68,9 +75,9 @@ mapsRouter.delete("/layers/:layerName", async (req, res) => {
 
 /**
  * POST /api/maps/publish-csv-from-oss
- * 从 OSS 读取 CSV → 写入 PostGIS → GeoServer REST 发布图层（与 deploy 中 init 使用同一 workspace/datastore）
+ * 从 OSS 读取 CSV → 写入 PostGIS（用户 schema）→ GeoServer REST 发布到用户 workspace
  */
-mapsRouter.post("/publish-csv-from-oss", async (req, res) => {
+mapsRouter.post("/publish-csv-from-oss", requireAuth, async (req, res) => {
   if (!isMapPublishConfigured()) {
     res.status(503).json({
       error:
@@ -90,13 +97,20 @@ mapsRouter.post("/publish-csv-from-oss", async (req, res) => {
   }
 
   try {
-    const result = await publishCsvFromOss({
-      objectKey: body.objectKey,
-      tableBase: body.tableBase,
-      lonColumn: body.lonColumn,
-      latColumn: body.latColumn,
-      nameColumn: body.nameColumn
-    });
+    const userId = req.user!.userId;
+    const schema = tenantSchemaName(userId);
+    const workspace = tenantWorkspaceName(userId);
+    const uploadPrefix = userOssUploadPrefix(userId);
+    const result = await publishCsvFromOss(
+      { userId, schema, workspace, uploadPrefix },
+      {
+        objectKey: body.objectKey,
+        tableBase: body.tableBase,
+        lonColumn: body.lonColumn,
+        latColumn: body.latColumn,
+        nameColumn: body.nameColumn
+      }
+    );
     res.json(result);
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
