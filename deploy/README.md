@@ -29,7 +29,7 @@
    docker compose up -d
    ```
 
-4. **安全组 / 防火墙**：放行 `NGINX_HTTP_PORT`（默认 80）、`API_PORT`、`ADMIN_PORT`、`VIEW_PORT`、`CORE_PORT`、`PGADMIN_PORT`、`POSTGIS_PORT`（按需）。
+4. **安全组 / 防火墙**：放行 `NGINX_HTTP_PORT`（默认 80）、`API_PORT`、`POSTGIS_PORT`（按需；若不直连容器 API 可不放行 `API_PORT`）。
 5. 查看状态：`docker compose ps`；日志示例：`docker compose logs -f api`、`docker compose logs -f geoserver`。
 
 ## 访问地址（默认端口）
@@ -38,16 +38,16 @@
 |------|------|
 | **Nginx 网关** | `http://<IP>/` 导航页；`http://<IP>/api/` → gyygis-server；`http://<IP>/geoserver/` → GeoServer |
 | API（直连容器） | `http://<IP>:3000` |
-| 管理端 | `http://<IP>:8081` |
-| 用户端 | `http://<IP>:8082` |
-| Core / 地图演示 | `http://<IP>:8083` |
-| pgAdmin | `http://<IP>:5050`（账号见 `.env` 中 `PGADMIN_DEFAULT_*`） |
+| 管理端 | `http://<IP>/admin/` |
+| 用户端 | `http://<IP>/view/` |
+| Core / 地图演示 | `http://<IP>/core/` |
+| pgAdmin | `http://<IP>/pgadmin/`（账号见 `.env` 中 `PGADMIN_DEFAULT_*`） |
 | PostGIS | 宿主机 `POSTGIS_PORT`（默认 5432），库名 `geodb`；容器内主机名 `postgis` |
 
 **GeoServer** 默认：`admin` / `geoserver`，由 `.env` 中 `GEOSERVER_ADMIN_*` 注入容器，初始化脚本会读取同名环境变量。
 
 若修改 **Postgres 密码**（`POSTGRES_PASSWORD`），请同步更新 `deploy/pgadmin/servers.json` 中的 `Password` 字段，或在 pgAdmin 里重新保存连接。
 
-**前端经统一域名子路径部署**（例如 `/admin/`）需要为各包配置 Vite `base` / `VITE_PUBLIC_PATH` 并调整 Nginx，本仓库当前 Compose 采用「网关 + 多端口前端」方式，与参考包中单页 + `dist` 挂载略有不同。
+**前端经统一域名子路径部署**（例如 `/admin/`）需要为各包配置 Vite `base` / `VITE_PUBLIC_PATH` 并调整 Nginx，本仓库 Compose 已按此方式收敛到网关子路径访问。
 
 生产环境建议在网关前再使用 **HTTPS**（证书终止在负载均衡或 Nginx）。

@@ -6,8 +6,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const port = Number(env.VITE_PORT) || 5176;
   const apiTarget = env.GYYGIS_SERVER_URL || "http://localhost:3000";
+  const base = env.VITE_PUBLIC_PATH || "/view/";
 
   return {
+    base,
     plugins: [vue()],
     resolve: {
       alias: {
