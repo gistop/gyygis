@@ -23,6 +23,9 @@
       :lock-scroll="false"
       modal-penetrable
     >
+      <div class="cornerDrawerActions">
+        <el-button type="primary" @click="goToAdminLogin">登录</el-button>
+      </div>
       <p v-if="cornerDrawerMessage" class="cornerDrawerBody">{{ cornerDrawerMessage }}</p>
       <DockviewThemeSettings
         v-model:show-panel-title-bar="showPanelTitleBar"
@@ -153,6 +156,11 @@ const cornerLongPressTimer = refSetup<number | null>(null);
 const cornerLongPressFired = refSetup(false);
 const cornerDrawerVisible = refSetup(false);
 const cornerDrawerMessage = refSetup("");
+
+function goToAdminLogin() {
+  const redirect = encodeURIComponent(window.location.href);
+  window.location.assign(`/admin/login?redirect=${redirect}`);
+}
 
 const panelEditDrawerVisible = refSetup(false);
 const panelEditDrawerTitle = refSetup("");
@@ -423,6 +431,13 @@ onBeforeUnmountSetup(() => {
   margin: 0 0 12px;
   font-size: 14px;
   line-height: 1.6;
+}
+
+.cornerDrawerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .panelEditHint {

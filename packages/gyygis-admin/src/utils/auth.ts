@@ -54,18 +54,20 @@ export function setToken(data: DataInfo<Date>) {
 
   expires > 0
     ? Cookies.set(TokenKey, cookieString, {
-        expires: (expires - Date.now()) / 86400000
+        expires: (expires - Date.now()) / 86400000,
+        path: "/"
       })
-    : Cookies.set(TokenKey, cookieString);
+    : Cookies.set(TokenKey, cookieString, { path: "/" });
 
   Cookies.set(
     multipleTabsKey,
     "true",
     isRemembered
       ? {
-          expires: loginDay
+          expires: loginDay,
+          path: "/"
         }
-      : {}
+      : { path: "/" }
   );
 
   function setUserKey({ avatar, username, nickname, roles, permissions }) {
@@ -117,8 +119,8 @@ export function setToken(data: DataInfo<Date>) {
 
 /** 删除`token`以及key值为`user-info`的localStorage信息 */
 export function removeToken() {
-  Cookies.remove(TokenKey);
-  Cookies.remove(multipleTabsKey);
+  Cookies.remove(TokenKey, { path: "/" });
+  Cookies.remove(multipleTabsKey, { path: "/" });
   storageLocal().removeItem(userKey);
 }
 

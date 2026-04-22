@@ -2,6 +2,7 @@
 import { useI18n } from "vue-i18n";
 import Motion from "./utils/motion";
 import { useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { message } from "@/utils/message";
 import { loginRules } from "./utils/rule";
 import { ref, reactive, toRaw } from "vue";
@@ -31,6 +32,7 @@ defineOptions({
 });
 
 const router = useRouter();
+const route = useRoute();
 const loading = ref(false);
 const disabled = ref(false);
 const ruleFormRef = ref<FormInstance>();
@@ -110,6 +112,18 @@ const onLogin = async (formEl: FormInstance | undefined) => {
         })
         .then(res => {
           if (res.success) {
+            // 普通用户登录后：回跳到 view（优先 redirect，其次 /view/）
+            const roles = res?.data?.roles ?? [];
+            const isCommonUser = Array.isArray(roles) && roles.includes("common");
+            if (isCommonUser) {
+              const redirectRaw = route.query?.redirect;
+              const redirect =
+                typeof redirectRaw === "string" && redirectRaw.trim()
+                  ? redirectRaw
+                  : "/view/";
+              window.location.assign(redirect);
+              return;
+            }
             // 获取后端路由
             return initRouter().then(() => {
               disabled.value = true;
