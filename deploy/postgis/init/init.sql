@@ -16,6 +16,26 @@ CREATE TABLE IF NOT EXISTS auth.users (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 用户布局（Dockview 布局 JSON）
+CREATE TABLE IF NOT EXISTS auth.user_layouts (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    layout_json JSONB NOT NULL,
+    is_default  BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 同一用户下布局名唯一
+CREATE UNIQUE INDEX IF NOT EXISTS user_layouts_user_name_uq
+  ON auth.user_layouts (user_id, name);
+
+-- 每个用户最多一个默认布局
+CREATE UNIQUE INDEX IF NOT EXISTS user_layouts_one_default_per_user_uq
+  ON auth.user_layouts (user_id)
+  WHERE is_default;
+
 -- 初始化管理员账号（部署后请尽快修改默认密码）
 INSERT INTO auth.users (username, password_hash, is_admin)
 VALUES ('admin', crypt('ChangeMe_123', gen_salt('bf')), TRUE)
