@@ -5,7 +5,6 @@ import TileLayer from "ol/layer/Tile";
 import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
 export type TiandituOlMapOptions = {
-  tk: string;
   /** 经纬度 [lon, lat] */
   center?: readonly [number, number];
   zoom?: number;
@@ -32,19 +31,17 @@ export function useTiandituOlMap(mapEl: Ref<HTMLDivElement | null>, getOptions: 
     const el = mapEl.value;
     if (!el) return;
 
-    const { tk, center = [116.407526, 39.90403], zoom = 12 } = getOptions();
+    const { center = [116.407526, 39.90403], zoom = 12 } = getOptions();
 
     try {
       const imgLayer = new TileLayer({
         source: new XYZ({
-          url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tk}`,
-          crossOrigin: "anonymous"
+          url: `/api/tianditu/img?x={x}&y={y}&l={z}`
         })
       });
       const imgLabelLayer = new TileLayer({
         source: new XYZ({
-          url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=cia_w&x={x}&y={y}&l={z}&tk=${tk}`,
-          crossOrigin: "anonymous"
+          url: `/api/tianditu/label?x={x}&y={y}&l={z}`
         })
       });
 

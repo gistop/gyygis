@@ -17,7 +17,6 @@ import "ol/ol.css";
 
 const props = withDefaults(
   defineProps<{
-    tk: string;
     centerLon?: number;
     centerLat?: number;
     zoom?: number;
@@ -32,7 +31,6 @@ const props = withDefaults(
 const mapEl = ref<HTMLDivElement | null>(null);
 
 const { errorMessage, mount } = useTiandituOlMap(mapEl, () => ({
-  tk: props.tk,
   center: [props.centerLon, props.centerLat],
   zoom: props.zoom
 }));

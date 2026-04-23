@@ -11,8 +11,6 @@ const EDIT_HOTSPOT_MULTI_TAP_WINDOW_MS = 2000;
 const EDIT_HOTSPOT_MULTI_TAP_COUNT = 5;
 const EDIT_HOTSPOT_LONG_PRESS_MS = 1500;
 
-const TDT_WEB_TK = "";
-
 /** Dockview 面板 api：双击左下角热区切换分组最大化（版本差异用 duck typing） */
 function togglePanelMaximizeFromApi(api: unknown): void {
   if (!api || typeof api !== "object") return;
@@ -172,7 +170,7 @@ export default defineComponent({
           )
         ]),
         effectiveContent.value === "map"
-          ? h(TiandituMapPanel, { tk: TDT_WEB_TK })
+          ? h(TiandituMapPanel, {})
           : effectiveContent.value === "chart"
             ? h(EchartsPanel, { chartKind: chartKindResolved.value ?? "bar" })
             : effectiveContent.value === "table"
