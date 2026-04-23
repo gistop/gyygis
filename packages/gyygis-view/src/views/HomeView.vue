@@ -44,6 +44,48 @@
         :dock-theme="dockTheme"
         :set-dock-theme="setDockTheme"
       />
+      <div class="userLayoutSection">
+        <div class="userLayoutSection__title">布局</div>
+        <p class="muted userLayoutSection__hint">
+          将当前 Dockview 布局保存为账号下的<strong>默认布局</strong>（覆盖同名「默认」）；可从列表恢复已存布局。
+        </p>
+        <div class="userLayoutRow">
+          <el-button
+            type="primary"
+            :loading="userLayoutSaving"
+            :disabled="!dockviewApi"
+            @click="onSaveDefaultLayout"
+          >
+            保存为默认布局
+          </el-button>
+        </div>
+        <div class="userLayoutRow">
+          <el-select
+            v-model="restoreLayoutId"
+            placeholder="选择已保存布局"
+            clearable
+            filterable
+            style="width: 100%"
+            :loading="userLayoutListLoading"
+          >
+            <el-option
+              v-for="it in userLayoutList"
+              :key="it.id"
+              :label="formatLayoutOptionLabel(it)"
+              :value="it.id"
+            />
+          </el-select>
+        </div>
+        <div class="userLayoutRow">
+          <el-button
+            :disabled="restoreLayoutId == null || !dockviewApi"
+            :loading="userLayoutRestoring"
+            @click="onRestoreLayout"
+          >
+            恢复所选布局
+          </el-button>
+        </div>
+      </div>
     </el-drawer>
     <el-drawer
       v-model="panelEditDrawerVisible"
@@ -114,15 +156,19 @@ export default {
 
 <script setup lang="ts">
 import {
+  nextTick as nextTickSetup,
   onBeforeUnmount as onBeforeUnmountSetup,
   provide,
   ref as refSetup,
+  watch as watchSetup,
   type Ref
 } from "vue";
+import { ElMessage } from "element-plus";
 import type {
   DockviewApi,
   DockviewPanelApi,
-  DockviewReadyEvent
+  DockviewReadyEvent,
+  SerializedDockview
 } from "dockview-core";
 import { useDockviewThemeSettings } from "@/composables/useDockviewThemeSettings";
 import DockviewThemeSettings from "@/panels/DockviewThemeSettings.vue";
@@ -134,6 +180,12 @@ import {
   mergePanelContentParams,
   type PanelContentRadio
 } from "@/panelContentMode";
+import {
+  fetchUserLayoutById,
+  fetchUserLayouts,
+  saveDefaultUserLayout,
+  type UserLayoutListItem
+} from "@/api/userLayouts";
 
 const dockviewApi: Ref<DockviewApi | null> = refSetup(null);
 const homeRoot = refSetup<HTMLElement | null>(null);
@@ -163,6 +215,82 @@ const cornerLongPressTimer = refSetup<number | null>(null);
 const cornerLongPressFired = refSetup(false);
 const cornerDrawerVisible = refSetup(false);
 const cornerDrawerMessage = refSetup("");
+
+const userLayoutList = refSetup<UserLayoutListItem[]>([]);
+const userLayoutListLoading = refSetup(false);
+const userLayoutSaving = refSetup(false);
+const userLayoutRestoring = refSetup(false);
+const restoreLayoutId = refSetup<number | undefined>(undefined);
+
+function formatLayoutOptionLabel(it: UserLayoutListItem): string {
+  const suffix = it.isDefault ? " · 默认" : "";
+  let time = "";
+  try {
+    time = it.updatedAt ? new Date(it.updatedAt).toLocaleString() : "";
+  } catch {
+    time = "";
+  }
+  return time ? `${it.name}${suffix}（${time}）` : `${it.name}${suffix}`;
+}
+
+async function refreshUserLayoutList() {
+  userLayoutListLoading.value = true;
+  try {
+    userLayoutList.value = await fetchUserLayouts();
+  } catch (e) {
+    userLayoutList.value = [];
+    const msg = e instanceof Error ? e.message : String(e);
+    ElMessage.warning(msg);
+  } finally {
+    userLayoutListLoading.value = false;
+  }
+}
+
+watchSetup(cornerDrawerVisible, v => {
+  if (v) void refreshUserLayoutList();
+});
+
+async function onSaveDefaultLayout() {
+  const api = dockviewApi.value;
+  if (!api) return;
+  userLayoutSaving.value = true;
+  try {
+    await saveDefaultUserLayout(api.toJSON() as object);
+    ElMessage.success("已保存为默认布局");
+    await refreshUserLayoutList();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e));
+  } finally {
+    userLayoutSaving.value = false;
+  }
+}
+
+function relayoutDockview() {
+  const api = dockviewApi.value;
+  const el = homeRoot.value;
+  if (api && el) {
+    api.layout(el.clientWidth, el.clientHeight, true);
+  }
+}
+
+async function onRestoreLayout() {
+  const api = dockviewApi.value;
+  const id = restoreLayoutId.value;
+  if (!api || id == null) return;
+  userLayoutRestoring.value = true;
+  try {
+    const layout = (await fetchUserLayoutById(id)) as SerializedDockview;
+    api.clear();
+    api.fromJSON(layout);
+    await nextTickSetup();
+    relayoutDockview();
+    ElMessage.success("布局已恢复");
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e));
+  } finally {
+    userLayoutRestoring.value = false;
+  }
+}
 
 function goToAdminLogin() {
   const redirect = encodeURIComponent(window.location.href);
@@ -281,13 +409,8 @@ function onCornerPointerCancel() {
   clearCornerLongPressTimer();
 }
 
-function onReady(event: DockviewReadyEvent) {
-  const { api } = event;
-  dockviewApi.value = api;
-
-  // 用 addPanel + position(referencePanel, direction) 构造 3 行 × 3 列（共 9 个 Panel）。
-  // 关键点：每一列单独向下 split 出三行，避免出现“只在左侧列分割、右侧没跟着分割”的情况。
-  // “中间更大”：通过给中行/中列的 split 提供更大的 size 提示（不同版本可能忽略该字段）。
+/** 用 addPanel + position(referencePanel, direction) 构造 3 行 × 3 列（共 9 个 Panel）。 */
+function buildInitialDockviewGrid(api: DockviewApi) {
   const p11 = "r1c1";
   const p12 = "r1c2";
   const p13 = "r1c3";
@@ -298,7 +421,6 @@ function onReady(event: DockviewReadyEvent) {
   const p32 = "r3c2";
   const p33 = "r3c3";
 
-  // 第 1 行：先生成 3 列
   api.addPanel({ id: p11, component: "GridPanel", title: "1-1", params: { id: p11, title: "1-1" } });
   api.addPanel({
     id: p12,
@@ -315,7 +437,6 @@ function onReady(event: DockviewReadyEvent) {
     position: { referencePanel: p12, direction: "right" } as any
   });
 
-  // 第 2 行：每一列都向下 split 一次（中行更大）
   api.addPanel({
     id: p21,
     component: "GridPanel",
@@ -338,7 +459,6 @@ function onReady(event: DockviewReadyEvent) {
     position: { referencePanel: p13, direction: "below", size: 420 } as any
   });
 
-  // 第 3 行：再对第 2 行各列继续向下 split 一次
   api.addPanel({
     id: p31,
     component: "GridPanel",
@@ -360,6 +480,12 @@ function onReady(event: DockviewReadyEvent) {
     params: { id: p33, title: "3-3（表格）", embedKind: "table" },
     position: { referencePanel: p23, direction: "below" } as any
   });
+}
+
+function onReady(event: DockviewReadyEvent) {
+  const { api } = event;
+  dockviewApi.value = api;
+  buildInitialDockviewGrid(api);
 }
 
 onBeforeUnmountSetup(() => {
@@ -465,6 +591,32 @@ onBeforeUnmountSetup(() => {
 
 .panelEditActions {
   margin-top: 18px;
+}
+
+.userLayoutSection {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.userLayoutSection__title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.userLayoutSection__hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.userLayoutRow {
+  margin-bottom: 10px;
+}
+
+.userLayoutRow:last-child {
+  margin-bottom: 0;
 }
 </style>
 
