@@ -1,6 +1,11 @@
 <template>
   <main ref="homeRoot" class="homeDockview" :class="dockThemeClassName" :style="layoutCssVars">
-    <DockviewVue :theme="runtimeDockTheme" class="dockviewFill" @ready="onReady" />
+    <DockviewVue
+      :theme="runtimeDockTheme"
+      class="dockviewFill"
+      left-header-actions-component="DockviewLeftHeaderAddPanel"
+      @ready="onReady"
+    />
     <div
       class="cornerHotspot"
       aria-label="corner-hotspot"
@@ -96,11 +101,13 @@
 <script lang="ts">
 import { DockviewVue } from "dockview-vue";
 import GridPanel from "@/panels/DockviewGridPanel.vue";
+import DockviewLeftHeaderAddPanel from "@/panels/DockviewLeftHeaderAddPanel.vue";
 
 export default {
   components: {
     DockviewVue,
-    GridPanel
+    GridPanel,
+    DockviewLeftHeaderAddPanel
   }
 };
 </script>
@@ -462,6 +469,20 @@ onBeforeUnmountSetup(() => {
 </style>
 
 <style>
+/* Dockview 左侧头操作区：与标签栏同一行内垂直居中（.dv-vue-part 默认块级会顶对齐） */
+.homeDockview .dv-left-actions-container {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+}
+
+.homeDockview .dv-left-actions-container .dv-vue-part {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  min-height: var(--dv-tabs-and-actions-container-height, 35px);
+}
+
 .gridPanel {
   box-sizing: border-box;
   height: 100%;
