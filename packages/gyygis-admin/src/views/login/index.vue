@@ -48,6 +48,47 @@ dataThemeChange(overallStyle.value);
 const { title, getDropdownItemStyle, getDropdownItemClass } = useNav();
 const { locale, translationCh, translationEn } = useTranslationLang();
 
+const showEntryDialog = ref(false);
+
+function isViewLikePath(p: string): boolean {
+  return p.startsWith("/view/") || p === "/view";
+}
+
+async function enterAdmin() {
+  // 获取后端路由
+  await initRouter();
+  disabled.value = true;
+  try {
+    await router.push(getTopMenu(true).path);
+    message(t("login.pureLoginSuccess"), { type: "success" });
+  } finally {
+    disabled.value = false;
+  }
+}
+
+async function enterByRedirect(raw: unknown) {
+  const redirect = typeof raw === "string" ? raw.trim() : "";
+  if (!redirect) return false;
+  if (isViewLikePath(redirect)) {
+    window.location.assign(redirect);
+    return true;
+  }
+  // 默认当作 admin 内部回跳：先确保动态路由已加载
+  await initRouter();
+  await router.push(redirect);
+  return true;
+}
+
+async function onChooseView() {
+  showEntryDialog.value = false;
+  window.location.assign("/view/");
+}
+
+async function onChooseAdmin() {
+  showEntryDialog.value = false;
+  await enterAdmin();
+}
+
 const ruleForm = reactive({
   username: "",
   password: ""
@@ -110,33 +151,18 @@ const onLogin = async (formEl: FormInstance | undefined) => {
           username: ruleForm.username,
           password: ruleForm.password
         })
-        .then(res => {
-          if (res.success) {
-            // 普通用户登录后：回跳到 view（优先 redirect，其次 /view/）
-            const roles = res?.data?.roles ?? [];
-            const isCommonUser = Array.isArray(roles) && roles.includes("common");
-            if (isCommonUser) {
-              const redirectRaw = route.query?.redirect;
-              const redirect =
-                typeof redirectRaw === "string" && redirectRaw.trim()
-                  ? redirectRaw
-                  : "/view/";
-              window.location.assign(redirect);
-              return;
-            }
-            // 获取后端路由
-            return initRouter().then(() => {
-              disabled.value = true;
-              router
-                .push(getTopMenu(true).path)
-                .then(() => {
-                  message(t("login.pureLoginSuccess"), { type: "success" });
-                })
-                .finally(() => (disabled.value = false));
-            });
-          } else {
+        .then(async res => {
+          if (!res.success) {
             message(t("login.pureLoginFail"), { type: "error" });
+            return;
           }
+
+          // 1) 优先按 redirect 回跳（兼容从受保护页面跳到登录页再回来）
+          const redirected = await enterByRedirect(route.query?.redirect);
+          if (redirected) return;
+
+          // 2) 每次弹窗选择入口
+          showEntryDialog.value = true;
         })
         .finally(() => (loading.value = false));
     }
@@ -162,6 +188,28 @@ useEventListener(document, "keydown", ({ code }) => {
 
 <template>
   <div class="select-none">
+    <el-dialog
+      v-model="showEntryDialog"
+      title="选择进入端"
+      width="420px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+    >
+      <div class="text-sm leading-6 text-[var(--el-text-color-regular)]">
+        你要进入管理端（数据上传/发布/管理等）还是用户端（地图浏览等）？
+      </div>
+      <template #footer>
+        <div class="flex items-center justify-end gap-2">
+          <el-button @click="onChooseView">
+            进入用户端
+          </el-button>
+          <el-button type="primary" @click="onChooseAdmin">
+            进入管理端
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
     <img :src="bg" class="wave" />
     <div class="flex-c absolute right-5 top-3">
       <!-- 主题 -->
