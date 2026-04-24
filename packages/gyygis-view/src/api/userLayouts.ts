@@ -9,6 +9,7 @@ export type UserLayoutListItem = {
 
 type ListResponse = { success: boolean; data?: UserLayoutListItem[]; error?: string };
 type PutDefaultResponse = { success: boolean; error?: string };
+type SimpleOkResponse = { success: boolean; error?: string };
 type ItemResponse = { success: boolean; data?: { layout: unknown }; error?: string };
 
 function httpErr(res: Response, body: { error?: string } | null): string {
@@ -47,6 +48,33 @@ export async function saveDefaultUserLayout(layout: object): Promise<void> {
     body: JSON.stringify({ layout })
   });
   const body = (await res.json()) as PutDefaultResponse;
+  if (!res.ok || !body.success) {
+    throw new Error(httpErr(res, body));
+  }
+}
+
+export async function saveUserLayoutByName(
+  name: string,
+  layout: object,
+  setAsDefault: boolean
+): Promise<void> {
+  const res = await fetch("/api/user-layouts/named", {
+    method: "PUT",
+    headers: authHeadersJson(),
+    body: JSON.stringify({ name, layout, setAsDefault })
+  });
+  const body = (await res.json()) as SimpleOkResponse;
+  if (!res.ok || !body.success) {
+    throw new Error(httpErr(res, body));
+  }
+}
+
+export async function deleteUserLayout(id: number): Promise<void> {
+  const res = await fetch(`/api/user-layouts/item/${id}`, {
+    method: "DELETE",
+    headers: authHeadersJson()
+  });
+  const body = (await res.json()) as SimpleOkResponse;
   if (!res.ok || !body.success) {
     throw new Error(httpErr(res, body));
   }

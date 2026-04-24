@@ -47,7 +47,7 @@
       <div class="userLayoutSection">
         <div class="userLayoutSection__title">布局</div>
         <p class="muted userLayoutSection__hint">
-          将当前 Dockview 布局保存为账号下的<strong>默认布局</strong>（覆盖同名「默认」）；可从列表恢复已存布局。
+          「保存为默认布局」写入名称「默认」并标为当前默认；亦可用下方自定义名称保存多套布局，在下拉中切换恢复。删除默认布局时，将把您<strong>最近更新</strong>的另一条自动设为默认。
         </p>
         <div class="userLayoutRow">
           <el-button
@@ -57,6 +57,24 @@
             @click="onSaveDefaultLayout"
           >
             保存为默认布局
+          </el-button>
+        </div>
+        <div class="userLayoutRow userLayoutNamedSave">
+          <el-input
+            v-model="layoutSaveName"
+            clearable
+            maxlength="64"
+            show-word-limit
+            placeholder="布局名称（1～64 字）"
+            :disabled="!dockviewApi"
+          />
+          <el-checkbox v-model="layoutSaveAsDefault" :disabled="!dockviewApi">设为默认</el-checkbox>
+          <el-button
+            :loading="userLayoutNamedSaving"
+            :disabled="!dockviewApi || !layoutSaveNameTrimmed"
+            @click="onSaveNamedLayout"
+          >
+            保存为命名布局
           </el-button>
         </div>
         <div class="userLayoutRow">
@@ -73,16 +91,36 @@
               :key="it.id"
               :label="formatLayoutOptionLabel(it)"
               :value="it.id"
-            />
+            >
+              <div class="userLayoutOptionRow">
+                <span v-if="it.isDefault" class="userLayoutOptionStar" aria-hidden="true">★</span>
+                <span class="userLayoutOptionMain">
+                  <span class="userLayoutOptionName">{{ it.name }}</span>
+                  <el-tag v-if="it.isDefault" type="success" size="small" effect="plain" class="userLayoutOptionTag">
+                    默认
+                  </el-tag>
+                </span>
+                <span class="muted userLayoutOptionTime">{{ formatLayoutUpdatedAt(it) }}</span>
+              </div>
+            </el-option>
           </el-select>
         </div>
-        <div class="userLayoutRow">
+        <div class="userLayoutRow userLayoutRow--actions">
           <el-button
             :disabled="restoreLayoutId == null || !dockviewApi"
             :loading="userLayoutRestoring"
             @click="onRestoreLayout"
           >
             恢复所选布局
+          </el-button>
+          <el-button
+            type="danger"
+            plain
+            :disabled="restoreLayoutId == null"
+            :loading="userLayoutDeleting"
+            @click="onDeleteSelectedLayout"
+          >
+            删除所选布局
           </el-button>
         </div>
       </div>
@@ -156,6 +194,7 @@ export default {
 
 <script setup lang="ts">
 import {
+  computed as computedSetup,
   nextTick as nextTickSetup,
   onBeforeUnmount as onBeforeUnmountSetup,
   provide,
@@ -163,7 +202,7 @@ import {
   watch as watchSetup,
   type Ref
 } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type {
   DockviewApi,
   DockviewPanelApi,
@@ -181,9 +220,11 @@ import {
   type PanelContentRadio
 } from "@/panelContentMode";
 import {
+  deleteUserLayout,
   fetchUserLayoutById,
   fetchUserLayouts,
   saveDefaultUserLayout,
+  saveUserLayoutByName,
   type UserLayoutListItem
 } from "@/api/userLayouts";
 
@@ -219,17 +260,26 @@ const cornerDrawerMessage = refSetup("");
 const userLayoutList = refSetup<UserLayoutListItem[]>([]);
 const userLayoutListLoading = refSetup(false);
 const userLayoutSaving = refSetup(false);
+const userLayoutNamedSaving = refSetup(false);
 const userLayoutRestoring = refSetup(false);
+const userLayoutDeleting = refSetup(false);
 const restoreLayoutId = refSetup<number | undefined>(undefined);
+const layoutSaveName = refSetup("");
+const layoutSaveAsDefault = refSetup(false);
+
+const layoutSaveNameTrimmed = computedSetup(() => layoutSaveName.value.trim());
+
+function formatLayoutUpdatedAt(it: UserLayoutListItem): string {
+  try {
+    return it.updatedAt ? new Date(it.updatedAt).toLocaleString() : "";
+  } catch {
+    return "";
+  }
+}
 
 function formatLayoutOptionLabel(it: UserLayoutListItem): string {
   const suffix = it.isDefault ? " · 默认" : "";
-  let time = "";
-  try {
-    time = it.updatedAt ? new Date(it.updatedAt).toLocaleString() : "";
-  } catch {
-    time = "";
-  }
+  const time = formatLayoutUpdatedAt(it);
   return time ? `${it.name}${suffix}（${time}）` : `${it.name}${suffix}`;
 }
 
@@ -262,6 +312,49 @@ async function onSaveDefaultLayout() {
     ElMessage.error(e instanceof Error ? e.message : String(e));
   } finally {
     userLayoutSaving.value = false;
+  }
+}
+
+async function onSaveNamedLayout() {
+  const api = dockviewApi.value;
+  const name = layoutSaveNameTrimmed.value;
+  if (!api || !name) return;
+  userLayoutNamedSaving.value = true;
+  try {
+    await saveUserLayoutByName(name, api.toJSON() as object, layoutSaveAsDefault.value);
+    ElMessage.success(layoutSaveAsDefault.value ? "已保存并设为默认" : "已保存命名布局");
+    await refreshUserLayoutList();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e));
+  } finally {
+    userLayoutNamedSaving.value = false;
+  }
+}
+
+async function onDeleteSelectedLayout() {
+  const id = restoreLayoutId.value;
+  if (id == null) return;
+  const it = userLayoutList.value.find(x => x.id === id);
+  const title = it?.name ?? String(id);
+  try {
+    await ElMessageBox.confirm(
+      `确定删除布局「${title}」吗？此操作不可恢复。若删除的是当前默认布局，将把您最近更新的一条其余布局自动设为默认。`,
+      "删除布局",
+      { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
+    );
+  } catch {
+    return;
+  }
+  userLayoutDeleting.value = true;
+  try {
+    await deleteUserLayout(id);
+    ElMessage.success("已删除");
+    restoreLayoutId.value = undefined;
+    await refreshUserLayoutList();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e));
+  } finally {
+    userLayoutDeleting.value = false;
   }
 }
 
@@ -618,6 +711,24 @@ onBeforeUnmountSetup(() => {
 .userLayoutRow:last-child {
   margin-bottom: 0;
 }
+
+.userLayoutNamedSave {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.userLayoutRow--actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.userLayoutRow--actions .el-button {
+  flex: 1;
+  min-width: 120px;
+}
 </style>
 
 <style>
@@ -758,5 +869,49 @@ onBeforeUnmountSetup(() => {
   padding: 10px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.92);
+}
+
+/* el-select 选项渲染在弹出层，需非 scoped 才能命中 */
+.userLayoutOptionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.userLayoutOptionStar {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--el-color-warning);
+}
+
+.userLayoutOptionMain {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.userLayoutOptionName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userLayoutOptionTag {
+  flex-shrink: 0;
+}
+
+.userLayoutOptionTime {
+  flex-shrink: 0;
+  max-width: 44%;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
 }
 </style>
