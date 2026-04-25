@@ -174,7 +174,7 @@ export default defineComponent({
           : effectiveContent.value === "chart"
             ? h(EchartsPanel, { chartKind: chartKindResolved.value ?? "bar" })
             : effectiveContent.value === "table"
-              ? h(DockviewEmbedTablePanel)
+              ? h(DockviewEmbedTablePanel, { params: innerParams.value })
               : effectiveContent.value === "image"
                 ? h("div", { class: "gridPanel__imgWrap" }, [
                     h("img", {

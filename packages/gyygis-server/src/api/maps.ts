@@ -1,9 +1,11 @@
 import { Router } from "express";
+import pg from "pg";
 import {
   deleteLayerAndTable,
   listPostgisStoreLayers,
   setLayerEnabled
 } from "../services/geoserverLayerCatalog.js";
+import { getDbPool, isDbConfigured } from "../db.js";
 import {
   isGeoMapsConfigured,
   isMapPublishConfigured,
@@ -14,6 +16,20 @@ import { requireAuth } from "../middleware/auth.js";
 import { tenantSchemaName, tenantWorkspaceName, userOssUploadPrefix } from "../services/tenant.js";
 
 export const mapsRouter = Router();
+
+function assertSafeIdentifier(name: string, what: string): void {
+  if (!name || name.length > 63) throw new Error(`非法${what}`);
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new Error(`${what}仅允许字母、数字、下划线且不以数字开头`);
+  }
+}
+
+function coercePageInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return Math.max(min, Math.min(max, i));
+}
 
 /** GET /api/maps/layers — postgis_store 中已发布的图层及启用状态 */
 mapsRouter.get("/layers", requireAuth, async (req, res) => {
@@ -29,6 +45,155 @@ mapsRouter.get("/layers", requireAuth, async (req, res) => {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[maps/layers]", e);
     res.status(400).json({ error: message || "列出图层失败" });
+  }
+});
+
+/**
+ * GET /api/maps/layers/:layerName/fields
+ * 返回当前用户 schema 下指定图层（表）的字段列表（不含几何字段）。
+ */
+mapsRouter.get("/layers/:layerName/fields", requireAuth, async (req, res) => {
+  if (!isDbConfigured()) {
+    res.status(503).json({ error: "数据库未配置" });
+    return;
+  }
+  const layerName = String(req.params.layerName ?? "");
+  try {
+    const schema = tenantSchemaName(req.user!.userId);
+    if (!/^u_[1-9][0-9]*$/.test(schema)) throw new Error("非法 schema");
+    assertSafeIdentifier(layerName, "图层名");
+
+    const pool = getDbPool();
+    const exists = await pool.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name=$2`,
+      [schema, layerName]
+    );
+    if (exists.rowCount === 0) {
+      res.status(404).json({ error: "图层不存在" });
+      return;
+    }
+
+    const q = await pool.query(
+      `
+      SELECT
+        column_name AS "name",
+        udt_name AS "udtName",
+        data_type AS "dataType"
+      FROM information_schema.columns
+      WHERE table_schema=$1 AND table_name=$2
+      ORDER BY ordinal_position ASC
+      `,
+      [schema, layerName]
+    );
+    // 默认过滤几何字段（常见为 geom / the_geom / geometry）
+    const fields = q.rows
+      .map(r => ({
+        name: String(r.name),
+        dataType: String(r.dataType ?? ""),
+        udtName: String(r.udtName ?? "")
+      }))
+      .filter(f => {
+        const n = f.name.toLowerCase();
+        if (n === "geom" || n === "the_geom" || n === "geometry") return false;
+        // PostGIS geometry 通常 udt_name=geometry
+        if (f.udtName.toLowerCase() === "geometry") return false;
+        return true;
+      });
+    res.json({ fields });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/fields]", e);
+    res.status(400).json({ error: message || "读取字段失败" });
+  }
+});
+
+/**
+ * GET /api/maps/layers/:layerName/rows
+ * 查询当前用户 schema 下指定图层（表）的属性行（分页），仅返回所选字段（不含几何）。
+ *
+ * query:
+ * - fields: 逗号分隔字段名（可选；为空时默认返回 id,name）
+ * - page: 1-based
+ * - pageSize: 1..200
+ */
+mapsRouter.get("/layers/:layerName/rows", requireAuth, async (req, res) => {
+  if (!isDbConfigured()) {
+    res.status(503).json({ error: "数据库未配置" });
+    return;
+  }
+  const layerName = String(req.params.layerName ?? "");
+  try {
+    const schema = tenantSchemaName(req.user!.userId);
+    if (!/^u_[1-9][0-9]*$/.test(schema)) throw new Error("非法 schema");
+    assertSafeIdentifier(layerName, "图层名");
+
+    const page = coercePageInt(req.query.page, 1, 1, 1000000);
+    const pageSize = coercePageInt(req.query.pageSize, 50, 1, 200);
+    const offset = (page - 1) * pageSize;
+
+    const rawFields = typeof req.query.fields === "string" ? req.query.fields : "";
+    const wanted = rawFields
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    // 读取表字段白名单，避免 SQL 注入
+    const pool = getDbPool();
+    const colsRes = await pool.query(
+      `
+      SELECT column_name AS "name", udt_name AS "udtName"
+      FROM information_schema.columns
+      WHERE table_schema=$1 AND table_name=$2
+      ORDER BY ordinal_position ASC
+      `,
+      [schema, layerName]
+    );
+    if (colsRes.rowCount === 0) {
+      res.status(404).json({ error: "图层不存在" });
+      return;
+    }
+    const allowed = colsRes.rows
+      .map(r => ({ name: String(r.name), udtName: String(r.udtName ?? "") }))
+      .filter(c => c.udtName.toLowerCase() !== "geometry")
+      .map(c => c.name);
+    const allowedSet = new Set(allowed);
+
+    const safeSelected =
+      wanted.length > 0 ? wanted.filter(n => allowedSet.has(n)) : ["id", "name"].filter(n => allowedSet.has(n));
+    if (safeSelected.length === 0) {
+      res.status(400).json({ error: "未选择可用字段" });
+      return;
+    }
+
+    // 确保有 id 方便前端作为 rowKey（若存在）
+    if (allowedSet.has("id") && !safeSelected.includes("id")) {
+      safeSelected.unshift("id");
+    }
+
+    const selectSql = safeSelected
+      .map(c => `${pg.escapeIdentifier(c)} AS ${pg.escapeIdentifier(c)}`)
+      .join(", ");
+    const fromSql = `${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(layerName)}`;
+
+    const totalRes = await pool.query(`SELECT COUNT(*)::int AS total FROM ${fromSql}`);
+    const total = Number(totalRes.rows?.[0]?.total ?? 0);
+
+    const rowsRes = await pool.query(
+      `SELECT ${selectSql} FROM ${fromSql} ORDER BY ${allowedSet.has("id") ? pg.escapeIdentifier("id") : "1"} ASC LIMIT $1 OFFSET $2`,
+      [pageSize, offset]
+    );
+
+    res.json({
+      page,
+      pageSize,
+      total,
+      fields: safeSelected,
+      rows: rowsRes.rows
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/rows]", e);
+    res.status(400).json({ error: message || "查询属性失败" });
   }
 });
 

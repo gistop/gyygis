@@ -164,6 +164,44 @@
           <el-input v-model="editImageUrl" type="textarea" :rows="2" placeholder="留空则使用默认演示图" />
           <p class="muted panelEditHint">留空保存时使用内置占位图 URL。</p>
         </template>
+        <template v-if="editPanelMode === 'table'">
+          <div class="panelEditForm__label">地图服务图层</div>
+          <el-select
+            v-model="editTableLayerName"
+            style="width: 100%"
+            filterable
+            clearable
+            placeholder="选择已发布图层"
+            :loading="tableLayersLoading"
+            :disabled="tableLayersLoading"
+          >
+            <el-option
+              v-for="it in tableLayers"
+              :key="it.name"
+              :label="it.enabled === false ? `${it.name}（已停用）` : it.name"
+              :value="it.name"
+              :disabled="it.enabled === false"
+            />
+          </el-select>
+          <p class="muted panelEditHint">来源：当前登录用户已发布的 GeoServer 图层（/api/maps/layers）。</p>
+
+          <div class="panelEditForm__label">显示字段</div>
+          <el-select
+            v-model="editTableFields"
+            style="width: 100%"
+            multiple
+            filterable
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择要显示的字段（可多选）"
+            :loading="tableFieldsLoading"
+            :disabled="!editTableLayerName || tableFieldsLoading"
+          >
+            <el-option v-for="f in tableFields" :key="f.name" :label="f.name" :value="f.name" />
+          </el-select>
+          <p class="muted panelEditHint">提示：字段来自 PostGIS 表结构（默认不含几何字段）。</p>
+        </template>
         <div class="panelEditActions">
           <el-button
             type="primary"
@@ -227,6 +265,12 @@ import {
   saveUserLayoutByName,
   type UserLayoutListItem
 } from "@/api/userLayouts";
+import {
+  fetchLayerFields,
+  fetchUserMapLayers,
+  type MapLayerField,
+  type MapLayerInfo
+} from "@/api/maps";
 
 const dockviewApi: Ref<DockviewApi | null> = refSetup(null);
 const homeRoot = refSetup<HTMLElement | null>(null);
@@ -400,6 +444,13 @@ const panelEditGetBusinessParams = refSetup<(() => Record<string, unknown>) | nu
 const editPanelMode = refSetup<PanelContentRadio>("auto");
 const editChartKind = refSetup<DockviewChartKind>("bar");
 const editImageUrl = refSetup("");
+const editTableLayerName = refSetup("");
+const editTableFields = refSetup<string[]>([]);
+
+const tableLayers = refSetup<MapLayerInfo[]>([]);
+const tableLayersLoading = refSetup(false);
+const tableFields = refSetup<MapLayerField[]>([]);
+const tableFieldsLoading = refSetup(false);
 
 function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
   const p = getBusinessParams();
@@ -415,6 +466,11 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
     ? (rawCk as DockviewChartKind)
     : "bar";
   editImageUrl.value = typeof p.imageUrl === "string" ? p.imageUrl : "";
+
+  editTableLayerName.value = typeof p.tableLayerName === "string" ? p.tableLayerName : "";
+  editTableFields.value = Array.isArray(p.tableFields)
+    ? (p.tableFields as unknown[]).map(x => String(x)).filter(Boolean)
+    : [];
 }
 
 function applyPanelContentFromDrawer() {
@@ -424,7 +480,9 @@ function applyPanelContentFromDrawer() {
   const base = { ...getP() };
   const next = mergePanelContentParams(base, editPanelMode.value, {
     chartKind: editChartKind.value,
-    imageUrl: editImageUrl.value
+    imageUrl: editImageUrl.value,
+    tableLayerName: editTableLayerName.value,
+    tableFields: editTableFields.value
   });
   api.updateParameters(next);
 }
@@ -448,6 +506,50 @@ function openPanelEditDrawer(
 }
 
 provide(PANEL_EDIT_INJECTION_KEY, openPanelEditDrawer);
+
+async function ensureTableLayersLoaded() {
+  if (tableLayersLoading.value) return;
+  tableLayersLoading.value = true;
+  try {
+    tableLayers.value = await fetchUserMapLayers();
+  } catch (e) {
+    tableLayers.value = [];
+    ElMessage.warning(e instanceof Error ? e.message : String(e));
+  } finally {
+    tableLayersLoading.value = false;
+  }
+}
+
+async function refreshTableFieldsForLayer(layerName: string) {
+  if (!layerName) {
+    tableFields.value = [];
+    editTableFields.value = [];
+    return;
+  }
+  tableFieldsLoading.value = true;
+  try {
+    tableFields.value = await fetchLayerFields(layerName);
+    const allowed = new Set(tableFields.value.map(x => x.name));
+    editTableFields.value = editTableFields.value.filter(f => allowed.has(f));
+  } catch (e) {
+    tableFields.value = [];
+    editTableFields.value = [];
+    ElMessage.warning(e instanceof Error ? e.message : String(e));
+  } finally {
+    tableFieldsLoading.value = false;
+  }
+}
+
+watchSetup(
+  () => [panelEditDrawerVisible.value, editPanelMode.value] as const,
+  ([visible, mode]) => {
+    if (visible && mode === "table") void ensureTableLayersLoaded();
+  }
+);
+
+watchSetup(editTableLayerName, layer => {
+  void refreshTableFieldsForLayer(layer);
+});
 
 function triggerCornerAlert(reason: "multi-tap" | "long-press") {
   cornerTapTs.value = [];

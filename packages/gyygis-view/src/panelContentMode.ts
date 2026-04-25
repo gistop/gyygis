@@ -37,7 +37,7 @@ export function getEffectivePanelContent(
 export function mergePanelContentParams(
   base: Record<string, unknown>,
   mode: PanelContentRadio,
-  opts?: { chartKind?: DockviewChartKind; imageUrl?: string }
+  opts?: { chartKind?: DockviewChartKind; imageUrl?: string; tableLayerName?: string; tableFields?: string[] }
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   if (mode === "auto") {
@@ -50,10 +50,14 @@ export function mergePanelContentParams(
     delete out.chartKind;
     delete out.embedKind;
     delete out.imageUrl;
+    delete out.tableLayerName;
+    delete out.tableFields;
   } else if (mode === "chart") {
     delete out.kind;
     delete out.embedKind;
     delete out.imageUrl;
+    delete out.tableLayerName;
+    delete out.tableFields;
     const ck = opts?.chartKind;
     out.chartKind = ck && isDockviewChartKind(ck) ? ck : "bar";
   } else if (mode === "table") {
@@ -61,9 +65,19 @@ export function mergePanelContentParams(
     delete out.chartKind;
     delete out.imageUrl;
     out.embedKind = "table";
+    const layerName = (opts?.tableLayerName ?? "").trim();
+    if (layerName) out.tableLayerName = layerName;
+    else delete out.tableLayerName;
+    if (Array.isArray(opts?.tableFields)) {
+      const f = opts!.tableFields!.map(s => String(s).trim()).filter(Boolean);
+      if (f.length) out.tableFields = f;
+      else delete out.tableFields;
+    }
   } else if (mode === "image") {
     delete out.kind;
     delete out.chartKind;
+    delete out.tableLayerName;
+    delete out.tableFields;
     out.embedKind = "image";
     const url = (opts?.imageUrl ?? "").trim();
     out.imageUrl = url || DEFAULT_PANEL_IMAGE_URL;
