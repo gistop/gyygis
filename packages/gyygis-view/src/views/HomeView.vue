@@ -313,6 +313,31 @@ const layoutSaveAsDefault = refSetup(false);
 
 const layoutSaveNameTrimmed = computedSetup(() => layoutSaveName.value.trim());
 
+const LAST_RESTORED_LAYOUT_ID_KEY = "gyygis-view:last-restored-layout-id";
+
+function readLastRestoredLayoutId(): number | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_RESTORED_LAYOUT_ID_KEY);
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastRestoredLayoutId(id: number | null) {
+  try {
+    if (id == null) {
+      window.localStorage.removeItem(LAST_RESTORED_LAYOUT_ID_KEY);
+      return;
+    }
+    window.localStorage.setItem(LAST_RESTORED_LAYOUT_ID_KEY, String(id));
+  } catch {
+    // ignore (private mode / disabled storage)
+  }
+}
+
 function formatLayoutUpdatedAt(it: UserLayoutListItem): string {
   try {
     return it.updatedAt ? new Date(it.updatedAt).toLocaleString() : "";
@@ -341,7 +366,13 @@ async function refreshUserLayoutList() {
 }
 
 watchSetup(cornerDrawerVisible, v => {
-  if (v) void refreshUserLayoutList();
+  if (v) {
+    if (restoreLayoutId.value == null) {
+      const last = readLastRestoredLayoutId();
+      if (last != null) restoreLayoutId.value = last;
+    }
+    void refreshUserLayoutList();
+  }
 });
 
 async function onSaveDefaultLayout() {
@@ -393,6 +424,8 @@ async function onDeleteSelectedLayout() {
   try {
     await deleteUserLayout(id);
     ElMessage.success("已删除");
+    const last = readLastRestoredLayoutId();
+    if (last === id) writeLastRestoredLayoutId(null);
     restoreLayoutId.value = undefined;
     await refreshUserLayoutList();
   } catch (e) {
@@ -422,10 +455,46 @@ async function onRestoreLayout() {
     await nextTickSetup();
     relayoutDockview();
     ElMessage.success("布局已恢复");
+    writeLastRestoredLayoutId(id);
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e));
   } finally {
     userLayoutRestoring.value = false;
+  }
+}
+
+async function tryAutoRestoreLayout(api: DockviewApi): Promise<boolean> {
+  // 1) 优先恢复“上次恢复”的布局（满足：登录态有效、且该布局仍存在）
+  const last = readLastRestoredLayoutId();
+  if (last != null) {
+    try {
+      const layout = (await fetchUserLayoutById(last)) as SerializedDockview;
+      api.clear();
+      api.fromJSON(layout);
+      await nextTickSetup();
+      relayoutDockview();
+      restoreLayoutId.value = last;
+      return true;
+    } catch {
+      // last 可能已被删除/无权限/登录过期；回退到默认逻辑
+    }
+  }
+
+  // 2) 其次尝试恢复“默认布局”（满足：已登录且存在默认项）
+  try {
+    const list = await fetchUserLayouts();
+    const def = list.find(x => x.isDefault);
+    if (!def) return false;
+    const layout = (await fetchUserLayoutById(def.id)) as SerializedDockview;
+    api.clear();
+    api.fromJSON(layout);
+    await nextTickSetup();
+    relayoutDockview();
+    restoreLayoutId.value = def.id;
+    writeLastRestoredLayoutId(def.id);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -680,7 +749,10 @@ function buildInitialDockviewGrid(api: DockviewApi) {
 function onReady(event: DockviewReadyEvent) {
   const { api } = event;
   dockviewApi.value = api;
-  buildInitialDockviewGrid(api);
+  void (async () => {
+    const restored = await tryAutoRestoreLayout(api);
+    if (!restored) buildInitialDockviewGrid(api);
+  })();
 }
 
 onBeforeUnmountSetup(() => {
