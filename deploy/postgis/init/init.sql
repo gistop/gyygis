@@ -36,6 +36,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS user_layouts_one_default_per_user_uq
   ON auth.user_layouts (user_id)
   WHERE is_default;
 
+-- 全站 Web 地图服务目录（管理员维护地址与管理员 key；服务端使用，不下发明文给浏览器）
+CREATE TABLE IF NOT EXISTS auth.web_map_service_catalog (
+    id                  BIGSERIAL PRIMARY KEY,
+    code                TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    service_type        TEXT NOT NULL DEFAULT 'xyz',
+    service_url         TEXT NOT NULL,
+    admin_api_key       TEXT,
+    requires_user_key   BOOLEAN NOT NULL DEFAULT TRUE,
+    is_enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order          INT NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT web_map_service_catalog_type_chk CHECK (service_type = 'xyz')
+);
+
+-- 用户对某条目录的个人 key 与个人是否启用（密钥仅存服务端）
+CREATE TABLE IF NOT EXISTS auth.user_web_map_services (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    catalog_id  BIGINT NOT NULL REFERENCES auth.web_map_service_catalog(id) ON DELETE CASCADE,
+    user_api_key TEXT,
+    is_enabled  BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, catalog_id)
+);
+
+CREATE INDEX IF NOT EXISTS user_web_map_services_user_idx
+  ON auth.user_web_map_services (user_id);
+
 -- 初始化管理员账号（部署后请尽快修改默认密码）
 INSERT INTO auth.users (username, password_hash, is_admin)
 VALUES ('admin', crypt('ChangeMe_123', gen_salt('bf')), TRUE)
