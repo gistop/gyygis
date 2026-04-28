@@ -164,6 +164,49 @@
           <el-input v-model="editImageUrl" type="textarea" :rows="2" placeholder="留空则使用默认演示图" />
           <p class="muted panelEditHint">留空保存时使用内置占位图 URL。</p>
         </template>
+        <template v-if="editPanelMode === 'map'">
+          <div class="panelEditForm__label">第三方地图服务（当前用户已启用且已配置 key）</div>
+          <el-select
+            v-model="editMapCatalogIds"
+            style="width: 100%"
+            multiple
+            filterable
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择要在面板中显示/可切换的地图服务（可多选）"
+            :loading="webMapServicesLoading"
+            :disabled="webMapServicesLoading"
+          >
+            <el-option
+              v-for="it in webMapServices"
+              :key="it.catalogId"
+              :label="`${it.name}（${it.serviceType}）`"
+              :value="it.catalogId"
+            />
+          </el-select>
+          <p class="muted panelEditHint">
+            说明：密钥仅保存在服务端；未配置用户 key 的服务不会出现在下拉列表中。
+          </p>
+
+          <div class="panelEditForm__label">默认显示</div>
+          <el-select
+            v-model="editMapCatalogId"
+            style="width: 100%"
+            filterable
+            clearable
+            placeholder="选择一个作为本面板默认显示"
+            :loading="webMapServicesLoading"
+            :disabled="webMapServicesLoading || editMapCatalogIds.length === 0"
+          >
+            <el-option
+              v-for="it in webMapServices.filter(s => editMapCatalogIds.includes(s.catalogId))"
+              :key="it.catalogId"
+              :label="it.name"
+              :value="it.catalogId"
+            />
+          </el-select>
+        </template>
         <template v-if="editPanelMode === 'table'">
           <div class="panelEditForm__label">地图服务图层</div>
           <el-select
@@ -257,6 +300,7 @@ import {
   mergePanelContentParams,
   type PanelContentRadio
 } from "@/panelContentMode";
+import { fetchWebMapServices, type WebMapServiceRow } from "@/api/webMapServices";
 import {
   deleteUserLayout,
   fetchUserLayoutById,
@@ -521,6 +565,11 @@ const tableLayersLoading = refSetup(false);
 const tableFields = refSetup<MapLayerField[]>([]);
 const tableFieldsLoading = refSetup(false);
 
+const webMapServicesLoading = refSetup(false);
+const webMapServices = refSetup<WebMapServiceRow[]>([]);
+const editMapCatalogIds = refSetup<number[]>([]);
+const editMapCatalogId = refSetup<number | null>(null);
+
 function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
   const p = getBusinessParams();
   const pc = p.panelContent;
@@ -540,6 +589,14 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
   editTableFields.value = Array.isArray(p.tableFields)
     ? (p.tableFields as unknown[]).map(x => String(x)).filter(Boolean)
     : [];
+
+  const idsRaw = p.mapCatalogIds;
+  editMapCatalogIds.value = Array.isArray(idsRaw)
+    ? (idsRaw as unknown[]).map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0)
+    : [];
+  const idRaw = p.mapCatalogId;
+  const one = Number(idRaw);
+  editMapCatalogId.value = Number.isFinite(one) && one > 0 ? one : null;
 }
 
 function applyPanelContentFromDrawer() {
@@ -553,6 +610,14 @@ function applyPanelContentFromDrawer() {
     tableLayerName: editTableLayerName.value,
     tableFields: editTableFields.value
   });
+
+  if (editPanelMode.value === "map") {
+    (next as Record<string, unknown>).mapCatalogIds = editMapCatalogIds.value.slice();
+    (next as Record<string, unknown>).mapCatalogId = editMapCatalogId.value;
+  } else {
+    delete (next as Record<string, unknown>).mapCatalogIds;
+    delete (next as Record<string, unknown>).mapCatalogId;
+  }
   api.updateParameters(next);
 }
 
@@ -588,6 +653,46 @@ async function ensureTableLayersLoaded() {
     tableLayersLoading.value = false;
   }
 }
+
+function isWebMapServiceAvailableForUser(it: WebMapServiceRow): boolean {
+  if (!it.catalogEnabled) return false;
+  if (!it.userEnabled) return false;
+  if (it.requiresUserKey && !it.hasUserKey) return false;
+  return true;
+}
+
+async function ensureWebMapServicesLoaded() {
+  if (webMapServicesLoading.value) return;
+  webMapServicesLoading.value = true;
+  try {
+    const list = await fetchWebMapServices();
+    webMapServices.value = list.filter(isWebMapServiceAvailableForUser);
+  } catch (e) {
+    webMapServices.value = [];
+    ElMessage.warning(e instanceof Error ? e.message : String(e));
+  } finally {
+    webMapServicesLoading.value = false;
+  }
+}
+
+watchSetup(
+  () => editPanelMode.value,
+  v => {
+    if (v === "map") void ensureWebMapServicesLoaded();
+  }
+);
+
+watchSetup(
+  () => editMapCatalogIds.value.slice(),
+  ids => {
+    if (!ids.length) {
+      editMapCatalogId.value = null;
+      return;
+    }
+    if (editMapCatalogId.value != null && ids.includes(editMapCatalogId.value)) return;
+    editMapCatalogId.value = ids[0] ?? null;
+  }
+);
 
 async function refreshTableFieldsForLayer(layerName: string) {
   if (!layerName) {

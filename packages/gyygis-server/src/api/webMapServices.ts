@@ -1,3 +1,4 @@
+import axios from "axios";
 import { Router, type Request, type Response } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { getDbPool, isDbConfigured } from "../db.js";
@@ -376,3 +377,127 @@ webMapServicesRouter.put("/me/:catalogId", async (req, res) => {
     res.status(500).json({ error: msg });
   }
 });
+
+type TileQuery = {
+  x?: string;
+  y?: string;
+  z?: string;
+};
+
+function pickRandomSubDomain(u: string): string {
+  if (u.includes("{0-7}")) {
+    const n = Math.floor(Math.random() * 8);
+    return u.replaceAll("{0-7}", String(n));
+  }
+  if (u.includes("{s}")) {
+    const n = Math.floor(Math.random() * 8);
+    return u.replaceAll("{s}", String(n));
+  }
+  return u;
+}
+
+function applyXyzTemplate(template: string, args: { x: string; y: string; z: string; key: string }): string {
+  const withSub = pickRandomSubDomain(template);
+  return withSub
+    .replaceAll("{x}", args.x)
+    .replaceAll("{y}", args.y)
+    .replaceAll("{z}", args.z)
+    .replaceAll("{key}", encodeURIComponent(args.key))
+    .replaceAll("{tk}", encodeURIComponent(args.key));
+}
+
+async function proxyTile(res: Response, url: string): Promise<void> {
+  try {
+    const response = await axios.get<ArrayBuffer>(url, {
+      responseType: "arraybuffer",
+      validateStatus: () => true,
+      timeout: 60_000,
+      headers: { "User-Agent": "Gyygis-TileProxy/1.0" }
+    });
+    const { status, data, headers } = response;
+    const contentType = headers["content-type"];
+    if (contentType) res.setHeader("Content-Type", contentType);
+    const body = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    res.status(status).send(body);
+  } catch (e) {
+    console.error("[web-map-services tile proxy]", e);
+    res.status(502).send("获取瓦片失败");
+  }
+}
+
+/** GET /api/web-map-services/tiles/:catalogId?x=&y=&z=（xyz）服务端取用户 key，不下发浏览器 */
+webMapServicesRouter.get(
+  "/tiles/:catalogId",
+  async (req: Request<{ catalogId: string }, unknown, unknown, TileQuery>, res: Response) => {
+    if (!isDbConfigured()) {
+      res.status(503).send("数据库未配置");
+      return;
+    }
+    const catalogId = Number(req.params.catalogId);
+    if (!Number.isFinite(catalogId) || catalogId <= 0) {
+      res.status(400).send("非法 catalogId");
+      return;
+    }
+    const x = String(req.query.x ?? "");
+    const y = String(req.query.y ?? "");
+    const z = String(req.query.z ?? "");
+    if (!x || !y || !z) {
+      res.status(400).send("缺少 x/y/z");
+      return;
+    }
+
+    try {
+      const pool = getDbPool();
+      const cat = await pool.query<{
+        service_type: string;
+        service_url: string;
+        requires_user_key: boolean;
+        is_enabled: boolean;
+      }>(
+        `SELECT service_type, service_url, requires_user_key, is_enabled
+         FROM auth.web_map_service_catalog
+         WHERE id = $1`,
+        [catalogId]
+      );
+      if (cat.rowCount === 0) {
+        res.status(404).send("服务不存在");
+        return;
+      }
+      if (!cat.rows[0].is_enabled) {
+        res.status(403).send("该服务已全站停用");
+        return;
+      }
+      if (cat.rows[0].service_type !== "xyz") {
+        res.status(400).send("仅支持 xyz");
+        return;
+      }
+
+      const u = await pool.query<{ user_api_key: string | null; is_enabled: boolean }>(
+        `SELECT user_api_key, is_enabled
+         FROM auth.user_web_map_services
+         WHERE user_id = $1 AND catalog_id = $2`,
+        [req.user!.userId, catalogId]
+      );
+      const userRow = u.rows[0];
+      if (!userRow || userRow.is_enabled !== true) {
+        res.status(403).send("该服务对当前用户不可用");
+        return;
+      }
+      const key = String(userRow.user_api_key ?? "").trim();
+      if (!key) {
+        res.status(403).send("未配置用户密钥");
+        return;
+      }
+      if (cat.rows[0].requires_user_key && !key) {
+        res.status(403).send("未配置用户密钥");
+        return;
+      }
+
+      const url = applyXyzTemplate(String(cat.rows[0].service_url), { x, y, z, key });
+      await proxyTile(res, url);
+    } catch (e) {
+      console.error("[web-map-services tiles]", e);
+      res.status(500).send("瓦片代理失败");
+    }
+  }
+);

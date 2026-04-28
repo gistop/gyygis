@@ -170,7 +170,21 @@ export default defineComponent({
           )
         ]),
         effectiveContent.value === "map"
-          ? h(TiandituMapPanel, {})
+          ? h(TiandituMapPanel, {
+              mapCatalogId:
+                typeof innerParams.value.mapCatalogId === "number"
+                  ? (innerParams.value.mapCatalogId as number)
+                  : innerParams.value.mapCatalogId == null
+                    ? null
+                    : Number.isFinite(Number(innerParams.value.mapCatalogId))
+                      ? Number(innerParams.value.mapCatalogId)
+                      : null,
+              mapCatalogIds: Array.isArray(innerParams.value.mapCatalogIds)
+                ? (innerParams.value.mapCatalogIds as unknown[])
+                    .map(x => Number(x))
+                    .filter(n => Number.isFinite(n) && n > 0)
+                : null
+            })
           : effectiveContent.value === "chart"
             ? h(EchartsPanel, { chartKind: chartKindResolved.value ?? "bar" })
             : effectiveContent.value === "table"

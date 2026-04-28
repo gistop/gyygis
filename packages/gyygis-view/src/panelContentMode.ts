@@ -23,7 +23,7 @@ export function getEffectivePanelContent(
   const kind = String(params.kind ?? "");
   const chartRaw = String(params.chartKind ?? "");
   const embedKind = String(params.embedKind ?? "");
-  if (kind === "tianditu" || panelId === "r2c2") return "map";
+  if (kind === "tianditu" || kind === "map" || panelId === "r2c2") return "map";
   if (isDockviewChartKind(chartRaw)) return "chart";
   if (embedKind === "table") return "table";
   if (embedKind === "image") return "image";
@@ -46,7 +46,7 @@ export function mergePanelContentParams(
   }
   out.panelContent = mode;
   if (mode === "map") {
-    out.kind = "tianditu";
+    out.kind = "map";
     delete out.chartKind;
     delete out.embedKind;
     delete out.imageUrl;
