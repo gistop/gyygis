@@ -10,7 +10,11 @@ import {
   isGeoMapsConfigured,
   isMapPublishConfigured,
   publishCsvFromOss,
-  type PublishCsvBody
+  publishGeojsonFromOss,
+  publishXlsxFromOss,
+  type PublishCsvBody,
+  type PublishGeojsonBody,
+  type PublishXlsxBody
 } from "../services/mapPublishFromOss.js";
 import { requireAuth } from "../middleware/auth.js";
 import { tenantSchemaName, tenantWorkspaceName, userOssUploadPrefix } from "../services/tenant.js";
@@ -280,6 +284,95 @@ mapsRouter.post("/publish-csv-from-oss", requireAuth, async (req, res) => {
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[maps/publish-csv-from-oss]", e);
+    res.status(400).json({ error: message || "发布失败" });
+  }
+});
+
+/**
+ * POST /api/maps/publish-xlsx-from-oss
+ * 从 OSS 读取 xlsx 首表 → 点数据写入 PostGIS → GeoServer 发布
+ */
+mapsRouter.post("/publish-xlsx-from-oss", requireAuth, async (req, res) => {
+  if (!isMapPublishConfigured()) {
+    res.status(503).json({
+      error:
+        "地图发布未配置：请在运行环境中设置 POSTGRES_HOST、POSTGRES_DB、POSTGRES_USER、POSTGRES_PASSWORD、ALIYUN_OSS_BUCKET、ALIYUN_OSS_REGION、ALIYUN_ACCESS_KEY_ID、ALIYUN_ACCESS_KEY_SECRET、GEOSERVER_INTERNAL_URL、GEOSERVER_USER、GEOSERVER_PASSWORD"
+    });
+    return;
+  }
+
+  const body = req.body as Partial<PublishXlsxBody>;
+  if (!body.objectKey || typeof body.objectKey !== "string") {
+    res.status(400).json({ error: "缺少 objectKey" });
+    return;
+  }
+  if (!body.tableBase || typeof body.tableBase !== "string") {
+    res.status(400).json({ error: "缺少 tableBase（图层/表标识，如 my_points）" });
+    return;
+  }
+
+  try {
+    const userId = req.user!.userId;
+    const schema = tenantSchemaName(userId);
+    const workspace = tenantWorkspaceName(userId);
+    const uploadPrefix = userOssUploadPrefix(userId);
+    const result = await publishXlsxFromOss(
+      { userId, schema, workspace, uploadPrefix },
+      {
+        objectKey: body.objectKey,
+        tableBase: body.tableBase,
+        lonColumn: body.lonColumn,
+        latColumn: body.latColumn,
+        nameColumn: body.nameColumn
+      }
+    );
+    res.json(result);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/publish-xlsx-from-oss]", e);
+    res.status(400).json({ error: message || "发布失败" });
+  }
+});
+
+/**
+ * POST /api/maps/publish-geojson-from-oss
+ * 从 OSS 读取 GeoJSON（Feature 或 FeatureCollection）→ PostGIS → GeoServer 发布
+ */
+mapsRouter.post("/publish-geojson-from-oss", requireAuth, async (req, res) => {
+  if (!isMapPublishConfigured()) {
+    res.status(503).json({
+      error:
+        "地图发布未配置：请在运行环境中设置 POSTGRES_HOST、POSTGRES_DB、POSTGRES_USER、POSTGRES_PASSWORD、ALIYUN_OSS_BUCKET、ALIYUN_OSS_REGION、ALIYUN_ACCESS_KEY_ID、ALIYUN_ACCESS_KEY_SECRET、GEOSERVER_INTERNAL_URL、GEOSERVER_USER、GEOSERVER_PASSWORD"
+    });
+    return;
+  }
+
+  const body = req.body as Partial<PublishGeojsonBody>;
+  if (!body.objectKey || typeof body.objectKey !== "string") {
+    res.status(400).json({ error: "缺少 objectKey" });
+    return;
+  }
+  if (!body.tableBase || typeof body.tableBase !== "string") {
+    res.status(400).json({ error: "缺少 tableBase（图层/表标识，如 my_polygons）" });
+    return;
+  }
+
+  try {
+    const userId = req.user!.userId;
+    const schema = tenantSchemaName(userId);
+    const workspace = tenantWorkspaceName(userId);
+    const uploadPrefix = userOssUploadPrefix(userId);
+    const result = await publishGeojsonFromOss(
+      { userId, schema, workspace, uploadPrefix },
+      {
+        objectKey: body.objectKey,
+        tableBase: body.tableBase
+      }
+    );
+    res.json(result);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/publish-geojson-from-oss]", e);
     res.status(400).json({ error: message || "发布失败" });
   }
 });

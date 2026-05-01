@@ -8,7 +8,7 @@ export type PublishCsvFromOssRequest = {
   nameColumn?: string;
 };
 
-export type PublishCsvFromOssResponse = {
+export type PublishFromOssMapResponse = {
   tableName: string;
   workspace: string;
   datastore: string;
@@ -18,16 +18,38 @@ export type PublishCsvFromOssResponse = {
   wmsLayersParam: string;
 };
 
+/** @deprecated 与 PublishFromOssMapResponse 相同，保留别名避免外部引用断裂 */
+export type PublishCsvFromOssResponse = PublishFromOssMapResponse;
+
 /** 从 OSS 拉取 CSV 写入 PostGIS 并由 GeoServer 发布图层（耗时较长） */
 export function publishCsvFromOss(body: PublishCsvFromOssRequest) {
-  return http.request<PublishCsvFromOssResponse>(
-    "post",
-    "/api/maps/publish-csv-from-oss",
-    {
-      data: body,
-      timeout: 120000
-    }
-  );
+  return http.request<PublishFromOssMapResponse>("post", "/api/maps/publish-csv-from-oss", {
+    data: body,
+    timeout: 120000
+  });
+}
+
+export type PublishXlsxFromOssRequest = PublishCsvFromOssRequest;
+
+/** 从 OSS 拉取 xlsx 首表（点）写入 PostGIS 并由 GeoServer 发布图层 */
+export function publishXlsxFromOss(body: PublishXlsxFromOssRequest) {
+  return http.request<PublishFromOssMapResponse>("post", "/api/maps/publish-xlsx-from-oss", {
+    data: body,
+    timeout: 120000
+  });
+}
+
+export type PublishGeojsonFromOssRequest = {
+  objectKey: string;
+  tableBase: string;
+};
+
+/** 从 OSS 拉取 GeoJSON（Feature / FeatureCollection）写入 PostGIS 并由 GeoServer 发布图层 */
+export function publishGeojsonFromOss(body: PublishGeojsonFromOssRequest) {
+  return http.request<PublishFromOssMapResponse>("post", "/api/maps/publish-geojson-from-oss", {
+    data: body,
+    timeout: 180000
+  });
 }
 
 export type MapLayerInfo = {
@@ -53,8 +75,5 @@ export function setMapLayerEnabled(layerName: string, enabled: boolean) {
 
 /** 删除 GeoServer 图层并 DROP 同名 PostGIS 表 */
 export function deleteMapLayer(layerName: string) {
-  return http.request<void>(
-    "delete",
-    `/api/maps/layers/${encodeURIComponent(layerName)}`
-  );
+  return http.request<void>("delete", `/api/maps/layers/${encodeURIComponent(layerName)}`);
 }

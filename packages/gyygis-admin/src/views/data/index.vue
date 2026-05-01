@@ -8,6 +8,8 @@ import {
   deleteMapLayer,
   fetchMapLayers,
   publishCsvFromOss,
+  publishGeojsonFromOss,
+  publishXlsxFromOss,
   setMapLayerEnabled,
   type MapLayerInfo
 } from "@/api/maps";
@@ -31,6 +33,7 @@ const tableBase = ref("");
 const lonColumn = ref("");
 const latColumn = ref("");
 const nameColumn = ref("");
+const publishFormat = ref<"csv" | "xlsx" | "geojson">("csv");
 const publishing = ref(false);
 
 const mapLayers = ref<MapLayerInfo[]>([]);
@@ -382,7 +385,7 @@ const handleUpload = async (options: UploadRequestOptions) => {
 
 async function handlePublishMap() {
   if (!publishObjectKey.value.trim()) {
-    ElMessage.warning("请填写 OSS 对象 key（可先上传 CSV 自动填入）");
+    ElMessage.warning("请填写 OSS 对象 key（可先在上传 Tab 上传后自动填入）");
     return;
   }
   if (!tableBase.value.trim()) {
@@ -391,15 +394,33 @@ async function handlePublishMap() {
   }
   publishing.value = true;
   try {
-    const res = await publishCsvFromOss({
-      objectKey: publishObjectKey.value.trim(),
-      tableBase: tableBase.value.trim(),
-      lonColumn: lonColumn.value.trim() || undefined,
-      latColumn: latColumn.value.trim() || undefined,
-      nameColumn: nameColumn.value.trim() || undefined
-    });
+    const key = publishObjectKey.value.trim();
+    const base = tableBase.value.trim();
+    const fmt = publishFormat.value;
+    const res =
+      fmt === "csv"
+        ? await publishCsvFromOss({
+            objectKey: key,
+            tableBase: base,
+            lonColumn: lonColumn.value.trim() || undefined,
+            latColumn: latColumn.value.trim() || undefined,
+            nameColumn: nameColumn.value.trim() || undefined
+          })
+        : fmt === "xlsx"
+          ? await publishXlsxFromOss({
+              objectKey: key,
+              tableBase: base,
+              lonColumn: lonColumn.value.trim() || undefined,
+              latColumn: latColumn.value.trim() || undefined,
+              nameColumn: nameColumn.value.trim() || undefined
+            })
+          : await publishGeojsonFromOss({
+              objectKey: key,
+              tableBase: base
+            });
+    const unit = fmt === "geojson" ? "条要素" : "点";
     ElMessage.success(
-      `已发布 ${res.rowsInserted} 点（跳过 ${res.rowsSkipped} 行）。WMS layers=${res.wmsLayersParam}`
+      `已发布 ${res.rowsInserted} ${unit}（跳过 ${res.rowsSkipped}）。WMS layers=${res.wmsLayersParam}`
     );
     await loadMapLayers();
   } catch (e: unknown) {
@@ -439,34 +460,49 @@ async function handlePublishMap() {
 
       <el-tab-pane label="地图发布" name="publish" lazy>
         <p class="mb-4 text-secondary text-sm">
-          服务端从 OSS 读取 CSV，写入当前用户 PostGIS schema（<code>u_&lt;用户ID&gt;</code>）下的表
-          <code>gyy_csv_*</code>，并调用 GeoServer REST 发布到当前用户工作区（同名
+          服务端从 OSS 读取文件，写入当前用户 PostGIS schema（<code>u_&lt;用户ID&gt;</code>）下的表（CSV→<code>gyy_csv_*</code>，xlsx→<code>gyy_xlsx_*</code>，GeoJSON→<code>gyy_geojson_*</code>），并调用 GeoServer REST 发布到当前用户工作区（同名
           <code>u_&lt;用户ID&gt;</code>）/ 数据存储 <code>postgis_store</code>。请确保 Docker Compose 中
           <code>api / postgis / geoserver</code> 已启动，且 RAM 账号具备 OSS 读权限。
         </p>
         <p class="mb-3 text-secondary text-sm">
-          CSV 首行为表头；需包含经纬度列（可自动识别 lon/lng/longitude/latitude/x/y/经度/纬度）。可选名称列（name/label/名称）。
+          <strong>CSV / xlsx</strong>：首行为表头，需含经纬度列（可自动识别 lon/lng/longitude/latitude/x/y/经度/纬度）；名称列可选（name/label/名称/title）。<strong>GeoJSON</strong>：支持单个
+          Feature 或 FeatureCollection；名称从 properties 中同名键推断；支持点/线/面等几何。
         </p>
         <el-form label-width="120px" class="max-w-xl" @submit.prevent>
+          <el-form-item label="数据格式">
+            <el-radio-group v-model="publishFormat">
+              <el-radio-button value="csv">CSV</el-radio-button>
+              <el-radio-button value="xlsx">xlsx</el-radio-button>
+              <el-radio-button value="geojson">GeoJSON</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
           <el-form-item label="OSS 对象 key">
-            <el-input v-model="publishObjectKey" placeholder="可先在上传 Tab 传 CSV 自动填入" clearable />
+            <el-input v-model="publishObjectKey" placeholder="可先在上传 Tab 上传后自动填入" clearable />
           </el-form-item>
           <el-form-item label="图层标识" required>
             <el-input
               v-model="tableBase"
-              placeholder="英文标识，如 my_sites → 表名 gyy_csv_my_sites"
+              :placeholder="
+                publishFormat === 'csv'
+                  ? '英文标识 → gyy_csv_*'
+                  : publishFormat === 'xlsx'
+                    ? '英文标识 → gyy_xlsx_*'
+                    : '英文标识 → gyy_geojson_*'
+              "
               clearable
             />
           </el-form-item>
-          <el-form-item label="经度列（可选）">
-            <el-input v-model="lonColumn" placeholder="留空则按表头自动识别" clearable />
-          </el-form-item>
-          <el-form-item label="纬度列（可选）">
-            <el-input v-model="latColumn" placeholder="留空则按表头自动识别" clearable />
-          </el-form-item>
-          <el-form-item label="名称列（可选）">
-            <el-input v-model="nameColumn" placeholder="留空则尝试 name/label/名称" clearable />
-          </el-form-item>
+          <template v-if="publishFormat === 'csv' || publishFormat === 'xlsx'">
+            <el-form-item label="经度列（可选）">
+              <el-input v-model="lonColumn" placeholder="留空则按表头自动识别" clearable />
+            </el-form-item>
+            <el-form-item label="纬度列（可选）">
+              <el-input v-model="latColumn" placeholder="留空则按表头自动识别" clearable />
+            </el-form-item>
+            <el-form-item label="名称列（可选）">
+              <el-input v-model="nameColumn" placeholder="留空则尝试 name/label/名称/title" clearable />
+            </el-form-item>
+          </template>
           <el-form-item>
             <el-button type="primary" :loading="publishing" @click="handlePublishMap">
               发布地图服务
