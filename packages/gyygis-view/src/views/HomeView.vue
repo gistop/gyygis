@@ -165,47 +165,45 @@
           <p class="muted panelEditHint">留空保存时使用内置占位图 URL。</p>
         </template>
         <template v-if="editPanelMode === 'map'">
-          <div class="panelEditForm__label">第三方地图服务（当前用户已启用且已配置 key）</div>
-          <el-select
-            v-model="editMapCatalogIds"
-            style="width: 100%"
-            multiple
-            filterable
-            clearable
-            collapse-tags
-            collapse-tags-tooltip
-            placeholder="选择要在面板中显示/可切换的地图服务（可多选）"
-            :loading="webMapServicesLoading"
-            :disabled="webMapServicesLoading"
-          >
-            <el-option
-              v-for="it in webMapServices"
-              :key="it.catalogId"
-              :label="`${it.name}（${it.serviceType}）`"
-              :value="it.catalogId"
-            />
-          </el-select>
+          <div class="panelEditForm__label">图层（可多选、可排序、可调透明度）</div>
           <p class="muted panelEditHint">
-            说明：密钥仅保存在服务端；未配置用户 key 的服务不会出现在下拉列表中。
+            包含：用户发布图层（WMS）与第三方 XYZ（经服务端代理，用户 key 不下发浏览器）。拖拽调整叠加顺序（上面的会盖住下面的）。
           </p>
 
-          <div class="panelEditForm__label">默认显示</div>
-          <el-select
-            v-model="editMapCatalogId"
-            style="width: 100%"
-            filterable
-            clearable
-            placeholder="选择一个作为本面板默认显示"
-            :loading="webMapServicesLoading"
-            :disabled="webMapServicesLoading || editMapCatalogIds.length === 0"
-          >
-            <el-option
-              v-for="it in webMapServices.filter(s => editMapCatalogIds.includes(s.catalogId))"
-              :key="it.catalogId"
-              :label="it.name"
-              :value="it.catalogId"
-            />
-          </el-select>
+          <div class="panelLayerList">
+            <div
+              v-for="(it, idx) in editMapLayers"
+              :key="it.key"
+              class="panelLayerRow"
+              draggable="true"
+              @dragstart="(e: DragEvent) => onLayerDragStart(e, idx)"
+              @dragover="(e: DragEvent) => onLayerDragOver(e)"
+              @drop="(e: DragEvent) => onLayerDrop(e, idx)"
+            >
+              <div class="panelLayerRow__head">
+                <span class="panelLayerRow__drag" title="拖拽排序">⋮⋮</span>
+                <el-checkbox v-model="it.enabled" class="panelLayerRow__check" />
+                <div class="panelLayerRow__title">
+                  <div class="panelLayerRow__name">
+                    {{ it.title }}
+                    <el-tag size="small" effect="plain" class="panelLayerRow__tag">
+                      {{ it.kind === "wms" ? "用户发布(WMS)" : "第三方(XYZ)" }}
+                    </el-tag>
+                  </div>
+                  <div class="panelLayerRow__sub muted">
+                    {{ it.kind === "wms" ? `图层：${it.layerName}` : `catalogId：${it.catalogId}` }}
+                  </div>
+                </div>
+              </div>
+              <div class="panelLayerRow__controls">
+                <span class="muted panelLayerRow__opacityLabel">透明度</span>
+                <el-slider v-model="it.opacityPercent" :min="0" :max="100" :step="1" :show-tooltip="true" />
+              </div>
+            </div>
+
+            <div v-if="mapLayerOptionsLoading" class="muted panelEditHint">加载图层列表中…</div>
+            <div v-else-if="editMapLayers.length === 0" class="muted panelEditHint">暂无可用图层（请先发布图层或配置第三方服务并启用）。</div>
+          </div>
         </template>
         <template v-if="editPanelMode === 'table'">
           <div class="panelEditForm__label">地图服务图层</div>
@@ -567,8 +565,29 @@ const tableFieldsLoading = refSetup(false);
 
 const webMapServicesLoading = refSetup(false);
 const webMapServices = refSetup<WebMapServiceRow[]>([]);
-const editMapCatalogIds = refSetup<number[]>([]);
-const editMapCatalogId = refSetup<number | null>(null);
+
+type EditMapLayerRow =
+  | {
+      key: string;
+      kind: "xyz";
+      title: string;
+      catalogId: number;
+      enabled: boolean;
+      opacityPercent: number; // 0..100
+    }
+  | {
+      key: string;
+      kind: "wms";
+      title: string;
+      layerName: string;
+      enabled: boolean;
+      opacityPercent: number; // 0..100
+    };
+
+const mapLayerOptionsLoading = refSetup(false);
+const userPublishedLayers = refSetup<MapLayerInfo[]>([]);
+const editMapLayers = refSetup<EditMapLayerRow[]>([]);
+const dragFromIndex = refSetup<number | null>(null);
 
 function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
   const p = getBusinessParams();
@@ -590,13 +609,64 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
     ? (p.tableFields as unknown[]).map(x => String(x)).filter(Boolean)
     : [];
 
+  // mapLayers（新版）优先；否则兼容旧的 mapCatalogId/mapCatalogIds
+  const rawLayers = Array.isArray(p.mapLayers) ? (p.mapLayers as unknown[]) : null;
+  if (rawLayers && rawLayers.length) {
+    const next: EditMapLayerRow[] = [];
+    for (const it of rawLayers) {
+      if (!it || typeof it !== "object") continue;
+      const o = it as Record<string, unknown>;
+      const kind = String(o.kind ?? "");
+      const enabled = o.enabled !== false;
+      const opacity = Math.round(Math.max(0, Math.min(1, Number(o.opacity ?? 1))) * 100);
+      const title = typeof o.title === "string" ? o.title : "";
+      if (kind === "xyz") {
+        const catalogId = Number(o.catalogId);
+        if (Number.isFinite(catalogId) && catalogId > 0) {
+          next.push({
+            key: `xyz:${catalogId}`,
+            kind: "xyz",
+            title: title || `第三方服务 ${catalogId}`,
+            catalogId,
+            enabled,
+            opacityPercent: opacity
+          });
+        }
+      }
+      if (kind === "wms") {
+        const layerName = typeof o.layerName === "string" ? o.layerName.trim() : "";
+        if (layerName) {
+          next.push({
+            key: `wms:${layerName}`,
+            kind: "wms",
+            title: title || `用户图层 ${layerName}`,
+            layerName,
+            enabled,
+            opacityPercent: opacity
+          });
+        }
+      }
+    }
+    editMapLayers.value = next;
+    return;
+  }
+
   const idsRaw = p.mapCatalogIds;
-  editMapCatalogIds.value = Array.isArray(idsRaw)
+  const ids = Array.isArray(idsRaw)
     ? (idsRaw as unknown[]).map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0)
     : [];
-  const idRaw = p.mapCatalogId;
-  const one = Number(idRaw);
-  editMapCatalogId.value = Number.isFinite(one) && one > 0 ? one : null;
+  const one = Number(p.mapCatalogId);
+  const uniq: number[] = [];
+  if (Number.isFinite(one) && one > 0) uniq.push(one);
+  for (const n of ids) if (!uniq.includes(n)) uniq.push(n);
+  editMapLayers.value = uniq.map(cid => ({
+    key: `xyz:${cid}`,
+    kind: "xyz",
+    title: webMapServices.value.find(s => s.catalogId === cid)?.name ?? `第三方服务 ${cid}`,
+    catalogId: cid,
+    enabled: true,
+    opacityPercent: 100
+  }));
 }
 
 function applyPanelContentFromDrawer() {
@@ -612,9 +682,29 @@ function applyPanelContentFromDrawer() {
   });
 
   if (editPanelMode.value === "map") {
-    (next as Record<string, unknown>).mapCatalogIds = editMapCatalogIds.value.slice();
-    (next as Record<string, unknown>).mapCatalogId = editMapCatalogId.value;
+    (next as Record<string, unknown>).mapLayers = editMapLayers.value.map(it => {
+      if (it.kind === "xyz") {
+        return {
+          kind: "xyz",
+          title: it.title,
+          catalogId: it.catalogId,
+          enabled: it.enabled,
+          opacity: Math.max(0, Math.min(1, it.opacityPercent / 100))
+        };
+      }
+      return {
+        kind: "wms",
+        title: it.title,
+        layerName: it.layerName,
+        enabled: it.enabled,
+        opacity: Math.max(0, Math.min(1, it.opacityPercent / 100))
+      };
+    });
+    // 迁移到新版参数后清理旧字段，避免渲染端歧义
+    delete (next as Record<string, unknown>).mapCatalogIds;
+    delete (next as Record<string, unknown>).mapCatalogId;
   } else {
+    delete (next as Record<string, unknown>).mapLayers;
     delete (next as Record<string, unknown>).mapCatalogIds;
     delete (next as Record<string, unknown>).mapCatalogId;
   }
@@ -675,22 +765,103 @@ async function ensureWebMapServicesLoaded() {
   }
 }
 
+async function ensureUserPublishedLayersLoaded() {
+  if (mapLayerOptionsLoading.value) return;
+  mapLayerOptionsLoading.value = true;
+  try {
+    const list = await fetchUserMapLayers();
+    userPublishedLayers.value = list.filter(x => x.enabled !== false);
+  } catch (e) {
+    userPublishedLayers.value = [];
+    ElMessage.warning(e instanceof Error ? e.message : String(e));
+  } finally {
+    mapLayerOptionsLoading.value = false;
+  }
+}
+
+function mergeLayerOptionsIntoEditList() {
+  const cur = new Map(editMapLayers.value.map(x => [x.key, x]));
+  const next: EditMapLayerRow[] = [];
+
+  // 1) 保留已有顺序
+  for (const it of editMapLayers.value) next.push(it);
+
+  // 2) 补齐“用户发布图层”
+  for (const l of userPublishedLayers.value) {
+    const key = `wms:${l.name}`;
+    if (cur.has(key)) continue;
+    next.push({
+      key,
+      kind: "wms",
+      title: l.name,
+      layerName: l.name,
+      enabled: false,
+      opacityPercent: 100
+    });
+  }
+
+  // 3) 补齐“第三方服务”
+  for (const s of webMapServices.value) {
+    const key = `xyz:${s.catalogId}`;
+    if (cur.has(key)) continue;
+    next.push({
+      key,
+      kind: "xyz",
+      title: s.name,
+      catalogId: s.catalogId,
+      enabled: false,
+      opacityPercent: 100
+    });
+  }
+
+  editMapLayers.value = next;
+}
+
+function onLayerDragStart(e: DragEvent, idx: number) {
+  dragFromIndex.value = idx;
+  try {
+    e.dataTransfer?.setData("text/plain", String(idx));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  } catch {
+    // ignore
+  }
+}
+
+function onLayerDragOver(e: DragEvent) {
+  e.preventDefault();
+  try {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  } catch {
+    // ignore
+  }
+}
+
+function onLayerDrop(e: DragEvent, to: number) {
+  e.preventDefault();
+  const from = dragFromIndex.value;
+  dragFromIndex.value = null;
+  if (from == null || from === to) return;
+  const arr = editMapLayers.value.slice();
+  const [moved] = arr.splice(from, 1);
+  arr.splice(to, 0, moved);
+  editMapLayers.value = arr;
+}
+
 watchSetup(
   () => editPanelMode.value,
   v => {
-    if (v === "map") void ensureWebMapServicesLoaded();
+    if (v === "map") {
+      void ensureWebMapServicesLoaded();
+      void ensureUserPublishedLayersLoaded();
+    }
   }
 );
 
 watchSetup(
-  () => editMapCatalogIds.value.slice(),
-  ids => {
-    if (!ids.length) {
-      editMapCatalogId.value = null;
-      return;
-    }
-    if (editMapCatalogId.value != null && ids.includes(editMapCatalogId.value)) return;
-    editMapCatalogId.value = ids[0] ?? null;
+  () => [webMapServices.value.length, userPublishedLayers.value.length] as const,
+  () => {
+    if (editPanelMode.value !== "map") return;
+    mergeLayerOptionsIntoEditList();
   }
 );
 
@@ -963,6 +1134,77 @@ onBeforeUnmountSetup(() => {
 
 .panelEditActions {
   margin-top: 18px;
+}
+
+.panelLayerList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.panelLayerRow {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  padding: 10px 10px 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.panelLayerRow__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.panelLayerRow__drag {
+  width: 18px;
+  flex-shrink: 0;
+  user-select: none;
+  opacity: 0.7;
+  cursor: grab;
+}
+
+.panelLayerRow__check {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.panelLayerRow__title {
+  min-width: 0;
+  flex: 1;
+}
+
+.panelLayerRow__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.panelLayerRow__tag {
+  flex-shrink: 0;
+}
+
+.panelLayerRow__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panelLayerRow__controls {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panelLayerRow__opacityLabel {
+  flex-shrink: 0;
+  font-size: 12px;
+  width: 46px;
 }
 
 .userLayoutSection {

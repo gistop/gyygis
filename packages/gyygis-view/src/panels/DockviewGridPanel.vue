@@ -86,12 +86,18 @@ export default defineComponent({
       return DEFAULT_PANEL_IMAGE_URL;
     });
 
+    function readMapLayersParam(): unknown[] | null {
+      const raw = innerParams.value.mapLayers;
+      return Array.isArray(raw) ? (raw as unknown[]) : null;
+    }
+
     const metaSuffix = computed(() => {
       const parts: string[] = [];
       if (kind.value) parts.push(kind.value);
       if (chartKindResolved.value) parts.push(`chart:${chartKindResolved.value}`);
       if (embedKind.value) parts.push(`embed:${embedKind.value}`);
       if (effectiveContent.value === "image") parts.push("image");
+      if (effectiveContent.value === "map" && readMapLayersParam()?.length) parts.push("layers");
       return parts.length ? ` · ${parts.join(" · ")}` : "";
     });
 
@@ -171,6 +177,7 @@ export default defineComponent({
         ]),
         effectiveContent.value === "map"
           ? h(TiandituMapPanel, {
+              mapLayers: readMapLayersParam(),
               mapCatalogId:
                 typeof innerParams.value.mapCatalogId === "number"
                   ? (innerParams.value.mapCatalogId as number)

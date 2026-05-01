@@ -494,6 +494,15 @@ webMapServicesRouter.get(
       }
 
       const url = applyXyzTemplate(String(cat.rows[0].service_url), { x, y, z, key });
+      // TODO: 临时排障日志（包含 key 尾号），正式发布前必须删除或改为可控开关
+      const safeUrl = url.replace(
+        /([?&](?:tk|key)=)([^&]*)/gi,
+        (_m, prefix: string, value: string) => {
+          const tail3 = (value ?? "").slice(-3);
+          return `${prefix}***${tail3}`;
+        }
+      );
+      console.log("[web-map-services tiles] upstream", { catalogId, x, y, z, url: safeUrl });
       await proxyTile(res, url);
     } catch (e) {
       console.error("[web-map-services tiles]", e);
