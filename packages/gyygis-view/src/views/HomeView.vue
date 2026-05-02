@@ -163,6 +163,12 @@
           <div class="panelEditForm__label">图片地址（https）</div>
           <el-input v-model="editImageUrl" type="textarea" :rows="2" placeholder="留空则使用默认演示图" />
           <p class="muted panelEditHint">留空保存时使用内置占位图 URL。</p>
+          <div class="panelEditForm__label">显示方式</div>
+          <el-radio-group v-model="editImageObjectFit" class="panelEditImageFit">
+            <el-radio-button value="fill">铺满（不裁切，可拉伸）</el-radio-button>
+            <el-radio-button value="contain">完整显示（保持比例）</el-radio-button>
+          </el-radio-group>
+          <p class="muted panelEditHint">大屏默认拉伸铺满整块面板；需不变形、整张可见时请选「完整显示」（可留边）。</p>
         </template>
         <template v-if="editPanelMode === 'map'">
           <div class="panelEditForm__label">图层（可多选、可排序、可调透明度）</div>
@@ -294,9 +300,11 @@ import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
 import type { DockviewChartKind } from "@/charts/types";
 import { isDockviewChartKind } from "@/charts/types";
 import {
+  coercePanelImageObjectFit,
   getEffectivePanelContent,
   mergePanelContentParams,
-  type PanelContentRadio
+  type PanelContentRadio,
+  type PanelImageObjectFit
 } from "@/panelContentMode";
 import { fetchWebMapServices, type WebMapServiceRow } from "@/api/webMapServices";
 import {
@@ -555,6 +563,7 @@ const panelEditGetBusinessParams = refSetup<(() => Record<string, unknown>) | nu
 const editPanelMode = refSetup<PanelContentRadio>("auto");
 const editChartKind = refSetup<DockviewChartKind>("bar");
 const editImageUrl = refSetup("");
+const editImageObjectFit = refSetup<PanelImageObjectFit>("fill");
 const editTableLayerName = refSetup("");
 const editTableFields = refSetup<string[]>([]);
 
@@ -603,6 +612,7 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
     ? (rawCk as DockviewChartKind)
     : "bar";
   editImageUrl.value = typeof p.imageUrl === "string" ? p.imageUrl : "";
+  editImageObjectFit.value = coercePanelImageObjectFit(p.imageObjectFit);
 
   editTableLayerName.value = typeof p.tableLayerName === "string" ? p.tableLayerName : "";
   editTableFields.value = Array.isArray(p.tableFields)
@@ -677,6 +687,7 @@ function applyPanelContentFromDrawer() {
   const next = mergePanelContentParams(base, editPanelMode.value, {
     chartKind: editChartKind.value,
     imageUrl: editImageUrl.value,
+    imageObjectFit: editImageObjectFit.value,
     tableLayerName: editTableLayerName.value,
     tableFields: editTableFields.value
   });
@@ -1120,6 +1131,14 @@ onBeforeUnmountSetup(() => {
   margin: 0 0 14px;
 }
 
+.panelEditImageFit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
 .panelEditForm__label {
   font-size: 13px;
   font-weight: 600;
@@ -1355,16 +1374,14 @@ onBeforeUnmountSetup(() => {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
 }
 
 .gridPanel__img {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
   display: block;
   pointer-events: none;
   user-select: none;

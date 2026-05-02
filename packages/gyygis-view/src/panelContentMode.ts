@@ -9,6 +9,17 @@ export type PanelContentRadio = "map" | "chart" | "table" | "image" | "auto";
 
 export type EffectivePanelContent = "map" | "chart" | "table" | "image" | "none";
 
+/** 图片面板：拉伸铺满（不裁切、可不保持宽高比） / 完整显示（保持比例、可留边） */
+export type PanelImageObjectFit = "fill" | "contain";
+
+export function coercePanelImageObjectFit(raw: unknown): PanelImageObjectFit {
+  const s = String(raw ?? "").toLowerCase();
+  if (s === "contain") return "contain";
+  // 旧版 cover（裁切铺满）按大屏需求并入 fill（铺满不裁切，必要时拉伸）
+  if (s === "cover" || s === "fill") return "fill";
+  return "fill";
+}
+
 /**
  * 显式 `panelContent` 优先；否则沿用原有规则（含 r2c2 默认地图等）。
  */
@@ -37,7 +48,13 @@ export function getEffectivePanelContent(
 export function mergePanelContentParams(
   base: Record<string, unknown>,
   mode: PanelContentRadio,
-  opts?: { chartKind?: DockviewChartKind; imageUrl?: string; tableLayerName?: string; tableFields?: string[] }
+  opts?: {
+    chartKind?: DockviewChartKind;
+    imageUrl?: string;
+    imageObjectFit?: PanelImageObjectFit;
+    tableLayerName?: string;
+    tableFields?: string[];
+  }
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   if (mode === "auto") {
@@ -50,12 +67,14 @@ export function mergePanelContentParams(
     delete out.chartKind;
     delete out.embedKind;
     delete out.imageUrl;
+    delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
   } else if (mode === "chart") {
     delete out.kind;
     delete out.embedKind;
     delete out.imageUrl;
+    delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
     const ck = opts?.chartKind;
@@ -64,6 +83,7 @@ export function mergePanelContentParams(
     delete out.kind;
     delete out.chartKind;
     delete out.imageUrl;
+    delete out.imageObjectFit;
     out.embedKind = "table";
     const layerName = (opts?.tableLayerName ?? "").trim();
     if (layerName) out.tableLayerName = layerName;
@@ -81,6 +101,7 @@ export function mergePanelContentParams(
     out.embedKind = "image";
     const url = (opts?.imageUrl ?? "").trim();
     out.imageUrl = url || DEFAULT_PANEL_IMAGE_URL;
+    out.imageObjectFit = coercePanelImageObjectFit(opts?.imageObjectFit ?? out.imageObjectFit);
   }
   return out;
 }

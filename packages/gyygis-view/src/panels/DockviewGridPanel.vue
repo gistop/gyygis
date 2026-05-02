@@ -5,7 +5,11 @@ import EchartsPanel from "@/panels/EchartsPanel.vue";
 import DockviewEmbedTablePanel from "@/panels/DockviewEmbedTablePanel.vue";
 import { isDockviewChartKind } from "@/charts/types";
 import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
-import { DEFAULT_PANEL_IMAGE_URL, getEffectivePanelContent } from "@/panelContentMode";
+import {
+  coercePanelImageObjectFit,
+  DEFAULT_PANEL_IMAGE_URL,
+  getEffectivePanelContent
+} from "@/panelContentMode";
 
 const EDIT_HOTSPOT_MULTI_TAP_WINDOW_MS = 2000;
 const EDIT_HOTSPOT_MULTI_TAP_COUNT = 5;
@@ -85,6 +89,10 @@ export default defineComponent({
       if (typeof u === "string" && u.trim()) return u.trim();
       return DEFAULT_PANEL_IMAGE_URL;
     });
+
+    const imageObjectFitResolved = computed(() =>
+      coercePanelImageObjectFit(innerParams.value.imageObjectFit)
+    );
 
     function readMapLayersParam(): unknown[] | null {
       const raw = innerParams.value.mapLayers;
@@ -202,7 +210,8 @@ export default defineComponent({
                       class: "gridPanel__img",
                       src: imageUrlResolved.value,
                       alt: "",
-                      draggable: false
+                      draggable: false,
+                      style: { objectFit: imageObjectFitResolved.value }
                     })
                   ])
                 : h("div", { class: "gridPanel__body" }, [
