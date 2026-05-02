@@ -33,7 +33,7 @@ function onBlockDockDrag(e: Event) {
   margin-top: 10px;
   flex: 1;
   min-height: 0;
-  border-radius: 10px;
+  border-radius: var(--gyygis-panel-content-border-radius, 10px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);

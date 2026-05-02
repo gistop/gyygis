@@ -1270,7 +1270,7 @@ onBeforeUnmountSetup(() => {
 .gridPanel {
   box-sizing: border-box;
   height: 100%;
-  padding: 12px;
+  padding: var(--gyygis-panel-padding, 8px);
   color: var(--dv-activegroup-visiblepanel-tab-color, rgba(255, 255, 255, 0.92));
   background: var(--dv-group-view-background-color, rgba(11, 16, 32, 0.65));
   display: flex;
@@ -1339,7 +1339,7 @@ onBeforeUnmountSetup(() => {
   margin-top: 10px;
   flex: 1;
   min-height: 0;
-  border-radius: 10px;
+  border-radius: var(--gyygis-panel-content-border-radius, 10px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);
@@ -1350,7 +1350,7 @@ onBeforeUnmountSetup(() => {
   margin-top: 10px;
   flex: 1;
   min-height: 0;
-  border-radius: 10px;
+  border-radius: var(--gyygis-panel-content-border-radius, 10px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(0, 0, 0, 0.22);

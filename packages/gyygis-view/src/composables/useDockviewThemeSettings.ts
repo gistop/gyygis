@@ -46,7 +46,8 @@ export function useDockviewThemeSettings(
   const tabBarHeightPx = ref(35);
   const tabSpacingPx = ref(0);
   const panelPaddingPx = ref(8);
-  const borderRadiusPx = ref(0);
+  /** 内容区圆角（地图/表格/图表）；同步写入 --gyygis-panel-content-border-radius 与 Dockview --dv-border-radius */
+  const borderRadiusPx = ref(10);
   /** 0 = 边框/分隔线接近全透明，100 = 与主题默认强度一致（相对系数） */
   const frameBorderOpacityPercent = ref(100);
   /** 是否显示各分组的标签栏（标题栏）；对应 Dockview `group.header.hidden` */
@@ -58,16 +59,26 @@ export function useDockviewThemeSettings(
     "--dv-tabs-and-actions-container-height": `${tabBarHeightPx.value}px`,
     "--dv-tab-margin": `${tabSpacingPx.value}px`,
     "--gyygis-panel-padding": `${panelPaddingPx.value}px`,
+    "--gyygis-panel-content-border-radius": `${borderRadiusPx.value}px`,
     "--dv-border-radius": `${borderRadiusPx.value}px`
   }));
 
-  /** Dockview 在子根上设置 theme 变量，会盖过 main 上的同名自定义属性，故边框透明度必须写在该根节点 */
+  /** Dockview 在子根上设置 theme 变量，会盖过 main 上的同名自定义属性，故需在该根节点上写回（边框透明度、标签栏高度等 layout 变量同理） */
   function resolveDockviewChromeHostEl(): HTMLElement | null {
     const root = homeRoot.value;
     if (!root) return null;
     const fill = root.querySelector(".dockviewFill");
     const first = fill?.firstElementChild;
     return first instanceof HTMLElement ? first : null;
+  }
+
+  function applyLayoutCssVarsToDockviewHost(): void {
+    const host = resolveDockviewChromeHostEl();
+    if (!host) return;
+    const vars = layoutCssVars.value;
+    for (const [k, v] of Object.entries(vars)) {
+      host.style.setProperty(k, v);
+    }
   }
 
   function applyFrameBorderVarsToDockviewHost(): void {
@@ -106,6 +117,7 @@ export function useDockviewThemeSettings(
     }
     await nextTick();
     applyFrameBorderVarsToDockviewHost();
+    applyLayoutCssVarsToDockviewHost();
   }
 
   async function applyThemeAndLayout() {
@@ -157,6 +169,7 @@ export function useDockviewThemeSettings(
   watch([frameBorderOpacityPercent, dockTheme], () => {
     void nextTick(() => {
       applyFrameBorderVarsToDockviewHost();
+      applyLayoutCssVarsToDockviewHost();
     });
   });
 

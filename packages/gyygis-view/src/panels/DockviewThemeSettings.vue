@@ -50,7 +50,7 @@
           <span class="slider-value">{{ panelPaddingPx }}px</span>
         </label>
         <label class="slider-row">
-          <span class="slider-label">圆角 border-radius</span>
+          <span class="slider-label">内容区圆角（地图/表格/图表）</span>
           <input v-model.number="borderRadiusPx" type="range" min="0" max="16" step="1" />
           <span class="slider-value">{{ borderRadiusPx }}px</span>
         </label>
