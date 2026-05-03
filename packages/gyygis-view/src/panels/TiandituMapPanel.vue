@@ -15,11 +15,14 @@ import { computed, onMounted, ref, watch } from "vue";
 import Map from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
+import type ImageTile from "ol/ImageTile";
 import XYZ from "ol/source/XYZ";
 import TileWMS from "ol/source/TileWMS";
 import { fromLonLat } from "ol/proj";
 import { useTiandituOlMap } from "@/composables/useTiandituOlMap";
+import { fetchBrowserTileConfig, fetchWebMapServices, type WebMapServiceRow } from "@/api/webMapServices";
 import { getUserIdFromAccessTokenJwt } from "@/utils/authorizedToken";
+import { prepareXyzUrlTemplateForOpenLayers } from "@/utils/xyzTileUrl";
 import "ol/ol.css";
 
 type PanelMapLayer =
@@ -146,15 +149,51 @@ async function mountCustom() {
   try {
     const layers: Array<TileLayer<XYZ | TileWMS>> = [];
 
+    let svcById = new Map<number, WebMapServiceRow>();
+    try {
+      const list = await fetchWebMapServices();
+      for (const row of list) {
+        svcById.set(row.catalogId, {
+          ...row,
+          tileKeyMode: row.tileKeyMode === "browser" ? "browser" : "proxy"
+        });
+      }
+    } catch {
+      svcById = new Map();
+    }
+
     for (const s of layersSpec) {
       if (s.kind === "xyz") {
-        const layer = new TileLayer({
-          opacity: s.opacity,
-          source: new XYZ({
-            url: `/api/web-map-services/tiles/${encodeURIComponent(String(s.catalogId))}?x={x}&y={y}&z={z}`
-          })
-        });
-        layers.push(layer);
+        const row = svcById.get(s.catalogId);
+        const mode = row?.tileKeyMode ?? "proxy";
+        if (mode === "browser") {
+          const { serviceUrl, apiKey } = await fetchBrowserTileConfig(s.catalogId);
+          const urlTemplate = prepareXyzUrlTemplateForOpenLayers(serviceUrl, apiKey);
+          const layer = new TileLayer({
+            opacity: s.opacity,
+            source: new XYZ({
+              url: urlTemplate,
+              crossOrigin: "anonymous",
+              tileLoadFunction: (tile: ImageTile, src: string) => {
+                console.log("[tianditu browser xyz]", src);
+                const image = tile.getImage() as HTMLImageElement;
+                if (image) {
+                  image.crossOrigin = "anonymous";
+                  image.src = src;
+                }
+              }
+            })
+          });
+          layers.push(layer);
+        } else {
+          const layer = new TileLayer({
+            opacity: s.opacity,
+            source: new XYZ({
+              url: `/api/web-map-services/tiles/${encodeURIComponent(String(s.catalogId))}?x={x}&y={y}&z={z}`
+            })
+          });
+          layers.push(layer);
+        }
         continue;
       }
 

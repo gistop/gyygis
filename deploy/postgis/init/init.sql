@@ -44,12 +44,14 @@ CREATE TABLE IF NOT EXISTS auth.web_map_service_catalog (
     service_type        TEXT NOT NULL DEFAULT 'xyz',
     service_url         TEXT NOT NULL,
     admin_api_key       TEXT,
-    requires_user_key   BOOLEAN NOT NULL DEFAULT TRUE,
+    requires_user_key   BOOLEAN NOT NULL DEFAULT FALSE,
+    tile_key_mode       TEXT NOT NULL DEFAULT 'proxy',
     is_enabled          BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order          INT NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT web_map_service_catalog_type_chk CHECK (service_type = 'xyz')
+    CONSTRAINT web_map_service_catalog_type_chk CHECK (service_type = 'xyz'),
+    CONSTRAINT web_map_service_catalog_tile_key_mode_chk CHECK (tile_key_mode IN ('proxy', 'browser'))
 );
 
 -- 用户对某条目录的个人 key 与个人是否启用（密钥仅存服务端）

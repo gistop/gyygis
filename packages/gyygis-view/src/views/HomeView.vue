@@ -755,11 +755,16 @@ async function ensureTableLayersLoaded() {
   }
 }
 
+function webMapUrlNeedsKey(url: string): boolean {
+  return url.includes("{tk}") || url.includes("{key}");
+}
+
 function isWebMapServiceAvailableForUser(it: WebMapServiceRow): boolean {
   if (!it.catalogEnabled) return false;
   if (!it.userEnabled) return false;
-  if (it.requiresUserKey && !it.hasUserKey) return false;
-  return true;
+  if (!webMapUrlNeedsKey(it.serviceUrl)) return true;
+  if (it.requiresUserKey) return it.hasUserKey;
+  return it.hasUserKey || it.hasAdminKey;
 }
 
 async function ensureWebMapServicesLoaded() {

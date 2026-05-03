@@ -23,6 +23,16 @@ import {
 } from "@/api/webMapServices";
 import { useUserStoreHook } from "@/store/modules/user";
 
+function webMapUrlNeedsKey(url: string): boolean {
+  return url.includes("{tk}") || url.includes("{key}");
+}
+
+function canUserEnableWebMapRow(row: WebMapServiceRow): boolean {
+  if (!webMapUrlNeedsKey(row.serviceUrl)) return true;
+  if (row.requiresUserKey) return row.hasUserKey;
+  return row.hasUserKey || row.hasAdminKey;
+}
+
 defineOptions({ name: "DataIndex" });
 
 const userStore = useUserStoreHook();
@@ -54,8 +64,13 @@ const wmForm = reactive({
   serviceType: "xyz" as const,
   serviceUrl: "",
   adminApiKey: "",
-  sortOrder: 0
+  sortOrder: 0,
+  /** 服务端代理 / 浏览器直连（仅当地址含 {tk} 或 {key} 时有效） */
+  tileKeyMode: "proxy" as "proxy" | "browser",
+  /** true=仅允许用户自备 key，禁止管理员代填参与瓦片 */
+  requiresUserKey: false
 });
+const wmUrlNeedsKey = computed(() => webMapUrlNeedsKey(wmForm.serviceUrl));
 const wmCreating = ref(false);
 
 const wmEditOpen = ref(false);
@@ -65,10 +80,12 @@ const wmEditForm = reactive({
   serviceUrl: "",
   adminApiKey: "",
   clearAdminKey: false,
-  requiresUserKey: true,
+  requiresUserKey: false,
   isEnabled: true,
-  sortOrder: 0
+  sortOrder: 0,
+  tileKeyMode: "proxy" as "proxy" | "browser"
 });
+const wmEditUrlNeedsKey = computed(() => webMapUrlNeedsKey(wmEditForm.serviceUrl));
 const wmEditSaving = ref(false);
 
 function syncUserKeyDrafts(rows: WebMapServiceRow[]) {
@@ -118,8 +135,8 @@ async function onWebMapCatalogEnabledChange(row: WebMapServiceRow, enabled: bool
 }
 
 async function onWebMapUserEnabledChange(row: WebMapServiceRow, enabled: boolean) {
-  if (row.requiresUserKey && !row.hasUserKey) {
-    ElMessage.warning("请先填写并保存您自己的密钥");
+  if (enabled && !canUserEnableWebMapRow(row)) {
+    ElMessage.warning("请先填写并保存用户密钥，或由管理员配置代填密钥");
     return;
   }
   webMapSaving.value = row.catalogId;
@@ -199,7 +216,9 @@ async function submitWebMapCatalog() {
       code: wmForm.code.trim() || undefined,
       serviceType: "xyz",
       serviceUrl: wmForm.serviceUrl.trim(),
-      adminApiKey: wmForm.adminApiKey.trim() || undefined,
+      adminApiKey: wmUrlNeedsKey.value ? wmForm.adminApiKey.trim() || undefined : undefined,
+      tileKeyMode: wmUrlNeedsKey.value ? wmForm.tileKeyMode : "proxy",
+      requiresUserKey: wmUrlNeedsKey.value ? wmForm.requiresUserKey : false,
       sortOrder: wmForm.sortOrder || 0
     });
     ElMessage.success("已添加");
@@ -208,6 +227,8 @@ async function submitWebMapCatalog() {
     wmForm.serviceUrl = "";
     wmForm.adminApiKey = "";
     wmForm.sortOrder = 0;
+    wmForm.tileKeyMode = "proxy";
+    wmForm.requiresUserKey = false;
     await loadWebMapServices();
   } catch (e: unknown) {
     const msg =
@@ -228,6 +249,7 @@ function openWmEdit(row: WebMapServiceRow) {
   wmEditForm.requiresUserKey = row.requiresUserKey;
   wmEditForm.isEnabled = row.catalogEnabled;
   wmEditForm.sortOrder = row.sortOrder;
+  wmEditForm.tileKeyMode = row.tileKeyMode === "browser" ? "browser" : "proxy";
   wmEditOpen.value = true;
 }
 
@@ -243,9 +265,10 @@ async function submitWmEdit() {
     const body: Parameters<typeof patchWebMapCatalog>[1] = {
       name: wmEditForm.name.trim(),
       serviceUrl: wmEditForm.serviceUrl.trim(),
-      requiresUserKey: wmEditForm.requiresUserKey,
+      requiresUserKey: wmEditUrlNeedsKey.value ? wmEditForm.requiresUserKey : false,
       isEnabled: wmEditForm.isEnabled,
-      sortOrder: wmEditForm.sortOrder
+      sortOrder: wmEditForm.sortOrder,
+      tileKeyMode: wmEditUrlNeedsKey.value ? wmEditForm.tileKeyMode : "proxy"
     };
     if (wmEditForm.clearAdminKey) {
       body.adminApiKey = null;
@@ -547,8 +570,9 @@ async function handlePublishMap() {
 
       <el-tab-pane label="第三方地图服务" name="webMaps" lazy>
         <p class="mb-3 text-secondary text-sm">
-          全站目录由管理员维护服务地址与管理员密钥；用户密钥仅保存在服务端，不在浏览器使用明文 key。
-          需用户自备 key 时，未填写则该服务对该用户不可用。
+          全站目录由管理员维护服务地址；若 URL 含 <code>{tk}</code> 或 <code>{key}</code>，可配置管理员代填密钥便于体验，用户填写自己的
+          key 时优先使用用户 key。瓦片模式为「服务端代理」时密钥由后端代请求上游；「浏览器直连」时有效 key 会下发到浏览器（仅适用于浏览器端
+          Key）。环境变量 <code>WEB_MAP_TILES_REQUIRE_USER_KEY=true</code> 时强制仅允许用户自备 key。
         </p>
 
         <div v-if="isAdmin" class="mb-6 rounded border border-[var(--el-border-color)] p-4">
@@ -572,19 +596,31 @@ async function handlePublishMap() {
             <el-form-item label="服务地址" required>
               <el-input
                 v-model="wmForm.serviceUrl"
-                placeholder="https://... 含 {z}/{x}/{y} 或天地图等占位"
+                placeholder="https://... 含 {z}/{x}/{y}；需密钥时含 {tk} 或 {key}"
                 clearable
               />
             </el-form-item>
-            <el-form-item label="管理员 key">
-              <el-input
-                v-model="wmForm.adminApiKey"
-                type="password"
-                show-password
-                placeholder="可选；仅存服务端"
-                clearable
-              />
-            </el-form-item>
+            <template v-if="wmUrlNeedsKey">
+              <el-form-item label="瓦片密钥模式" required>
+                <el-select v-model="wmForm.tileKeyMode" style="width: 260px">
+                  <el-option label="服务端代理（推荐）" value="proxy" />
+                  <el-option label="浏览器直连上游" value="browser" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="管理员 key">
+                <el-input
+                  v-model="wmForm.adminApiKey"
+                  type="password"
+                  show-password
+                  placeholder="体验用代填；仅存服务端"
+                  clearable
+                />
+              </el-form-item>
+              <el-form-item label="仅允许用户 key">
+                <el-switch v-model="wmForm.requiresUserKey" />
+                <span class="ml-2 text-secondary text-xs">开启后禁用管理员密钥参与瓦片（正式租户）</span>
+              </el-form-item>
+            </template>
             <el-form-item label="排序">
               <el-input-number v-model="wmForm.sortOrder" :min="0" :max="9999" />
             </el-form-item>
@@ -606,6 +642,11 @@ async function handlePublishMap() {
           <el-table-column prop="code" label="标识" width="140" />
           <el-table-column prop="serviceType" label="类型" width="80" />
           <el-table-column prop="serviceUrl" label="服务地址" min-width="200" show-overflow-tooltip />
+          <el-table-column label="瓦片模式" width="120" align="center">
+            <template #default="{ row }">
+              {{ row.tileKeyMode === "browser" ? "浏览器" : "代理" }}
+            </template>
+          </el-table-column>
           <el-table-column v-if="isAdmin" label="全站启用" width="110" align="center">
             <template #default="{ row }">
               <el-switch
@@ -625,7 +666,7 @@ async function handlePublishMap() {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="需用户 key" width="100" align="center">
+          <el-table-column label="仅用户 key" width="100" align="center">
             <template #default="{ row }">
               {{ row.requiresUserKey ? "是" : "否" }}
             </template>
@@ -658,8 +699,8 @@ async function handlePublishMap() {
                 :model-value="row.userEnabled"
                 :disabled="
                   webMapSaving === row.catalogId ||
-                  (row.requiresUserKey && !row.hasUserKey) ||
-                  !row.catalogEnabled
+                  !row.catalogEnabled ||
+                  (!row.userEnabled && !canUserEnableWebMapRow(row))
                 "
                 @change="
                   (v: boolean | string | number) =>
@@ -691,7 +732,13 @@ async function handlePublishMap() {
             <el-form-item label="服务地址" required>
               <el-input v-model="wmEditForm.serviceUrl" type="textarea" :rows="2" clearable />
             </el-form-item>
-            <el-form-item label="需用户 key">
+            <el-form-item v-if="wmEditUrlNeedsKey" label="瓦片密钥模式" required>
+              <el-select v-model="wmEditForm.tileKeyMode" style="width: 260px">
+                <el-option label="服务端代理（推荐）" value="proxy" />
+                <el-option label="浏览器直连上游" value="browser" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="wmEditUrlNeedsKey" label="仅允许用户 key">
               <el-switch v-model="wmEditForm.requiresUserKey" />
             </el-form-item>
             <el-form-item label="全站启用">

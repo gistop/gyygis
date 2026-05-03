@@ -12,6 +12,7 @@ export type WebMapServiceRow = {
   hasAdminKey: boolean;
   hasUserKey: boolean;
   userEnabled: boolean;
+  tileKeyMode: "proxy" | "browser";
 };
 
 export type WebMapServicesListResponse = {
@@ -29,6 +30,7 @@ export type CreateWebMapCatalogBody = {
   serviceUrl: string;
   adminApiKey?: string;
   requiresUserKey?: boolean;
+  tileKeyMode?: "proxy" | "browser";
   isEnabled?: boolean;
   sortOrder?: number;
 };
@@ -47,6 +49,7 @@ export function patchWebMapCatalog(
     requiresUserKey: boolean;
     isEnabled: boolean;
     sortOrder: number;
+    tileKeyMode: "proxy" | "browser";
   }>
 ) {
   return http.request<{ ok: boolean }>(

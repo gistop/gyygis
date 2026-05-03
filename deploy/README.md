@@ -51,3 +51,7 @@
 **前端经统一域名子路径部署**（例如 `/admin/`）需要为各包配置 Vite `base` / `VITE_PUBLIC_PATH` 并调整 Nginx，本仓库 Compose 已按此方式收敛到网关子路径访问。
 
 生产环境建议在网关前再使用 **HTTPS**（证书终止在负载均衡或 Nginx）。
+
+## PostGIS 增量迁移（已有数据卷）
+
+若数据库在 `migrate-add-web-map-services.sql` 之后未更新，请在 PostGIS 上执行 `deploy/postgis/migrate-web-map-tile-key-mode.sql`（或重新执行已追加该段落的 `migrate-add-web-map-services.sql`），否则 `tile_key_mode` 列缺失会导致 `/api/web-map-services` 报错。

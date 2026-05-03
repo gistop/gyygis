@@ -12,6 +12,8 @@ export type WebMapServiceRow = {
   hasAdminKey: boolean;
   hasUserKey: boolean;
   userEnabled: boolean;
+  /** proxy=服务端代拉；browser=浏览器直连上游 */
+  tileKeyMode: "proxy" | "browser";
 };
 
 type ListResponse = { services: WebMapServiceRow[]; error?: string };
@@ -31,11 +33,36 @@ function authHeadersJson(): HeadersInit {
   };
 }
 
+function authHeadersGetJson(): HeadersInit {
+  const token = getAccessTokenFromAuthorizedCookie();
+  if (!token) throw new Error("未登录或登录已过期，请从设置中重新登录");
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json"
+  };
+}
+
 export async function fetchWebMapServices(): Promise<WebMapServiceRow[]> {
   const res = await fetch("/api/web-map-services", { headers: authHeadersJson() });
   const body = (await res.json()) as ListResponse;
   if (!res.ok) throw new Error(httpErr(res, body));
   if (!Array.isArray(body.services)) throw new Error(body.error || "加载第三方地图服务失败");
   return body.services;
+}
+
+export type BrowserTileConfigResponse = {
+  serviceUrl: string;
+  apiKey: string;
+};
+
+export async function fetchBrowserTileConfig(catalogId: number): Promise<BrowserTileConfigResponse> {
+  const res = await fetch(
+    `/api/web-map-services/me/${encodeURIComponent(String(catalogId))}/browser-tiles`,
+    { headers: authHeadersGetJson() }
+  );
+  const body = (await res.json()) as BrowserTileConfigResponse & { error?: string };
+  if (!res.ok) throw new Error(body.error || `请求失败（${res.status}）`);
+  if (typeof body.serviceUrl !== "string") throw new Error("无效的瓦片配置");
+  return { serviceUrl: body.serviceUrl, apiKey: typeof body.apiKey === "string" ? body.apiKey : "" };
 }
 

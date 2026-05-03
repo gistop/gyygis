@@ -29,3 +29,14 @@ CREATE TABLE IF NOT EXISTS auth.user_web_map_services (
 
 CREATE INDEX IF NOT EXISTS user_web_map_services_user_idx
   ON auth.user_web_map_services (user_id);
+
+-- 瓦片密钥模式（与 migrate-web-map-tile-key-mode.sql 相同，便于一次执行本文件）
+ALTER TABLE auth.web_map_service_catalog
+  ADD COLUMN IF NOT EXISTS tile_key_mode TEXT NOT NULL DEFAULT 'proxy';
+
+ALTER TABLE auth.web_map_service_catalog
+  DROP CONSTRAINT IF EXISTS web_map_service_catalog_tile_key_mode_chk;
+
+ALTER TABLE auth.web_map_service_catalog
+  ADD CONSTRAINT web_map_service_catalog_tile_key_mode_chk
+  CHECK (tile_key_mode IN ('proxy', 'browser'));

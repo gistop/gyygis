@@ -2,6 +2,7 @@ import axios from "axios";
 import { Router, type Request, type Response } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { getDbPool, isDbConfigured } from "../db.js";
+import { config } from "../config/index.js";
 
 export const webMapServicesRouter = Router();
 webMapServicesRouter.use(requireAuth);
@@ -15,6 +16,26 @@ function requireAdmin(req: Request, res: Response): boolean {
 }
 
 const ALLOWED_TYPES = new Set(["xyz"]);
+
+function templateNeedsKey(template: string): boolean {
+  return template.includes("{tk}") || template.includes("{key}");
+}
+
+function effectiveTileKey(
+  userKey: string | null | undefined,
+  adminKey: string | null | undefined,
+  catalogRequiresUserKey: boolean
+): string {
+  const u = (userKey ?? "").trim();
+  const a = (adminKey ?? "").trim();
+  if (config.webMapTilesRequireUserKey) {
+    return u;
+  }
+  if (catalogRequiresUserKey) {
+    return u;
+  }
+  return u || a;
+}
 
 function slugCode(name: string): string {
   const base = name
@@ -48,6 +69,7 @@ webMapServicesRouter.get("/", async (req, res) => {
       admin_key_len: number | null;
       user_key_len: number | null;
       user_is_enabled: boolean | null;
+      tile_key_mode: string;
     }>(
       `
       SELECT
@@ -61,7 +83,8 @@ webMapServicesRouter.get("/", async (req, res) => {
         c.sort_order::text,
         length(coalesce(c.admin_api_key, '')) AS admin_key_len,
         length(coalesce(u.user_api_key, '')) AS user_key_len,
-        u.is_enabled AS user_is_enabled
+        u.is_enabled AS user_is_enabled,
+        COALESCE(c.tile_key_mode, 'proxy') AS tile_key_mode
       FROM auth.web_map_service_catalog c
       LEFT JOIN auth.user_web_map_services u
         ON u.catalog_id = c.id AND u.user_id = $1
@@ -83,7 +106,8 @@ webMapServicesRouter.get("/", async (req, res) => {
         sortOrder: Number(r.sort_order),
         hasAdminKey: (r.admin_key_len ?? 0) > 0,
         hasUserKey: (r.user_key_len ?? 0) > 0,
-        userEnabled: r.user_is_enabled === true
+        userEnabled: r.user_is_enabled === true,
+        tileKeyMode: r.tile_key_mode === "browser" ? "browser" : "proxy"
       }))
     });
   } catch (e) {
@@ -112,7 +136,7 @@ webMapServicesRouter.post("/catalog", async (req, res) => {
       : body.admin_api_key !== undefined && body.admin_api_key !== null
         ? String(body.admin_api_key)
         : null;
-  const requiresUserKey = body.requiresUserKey !== false && body.requires_user_key !== false;
+  const requiresUserKey = Boolean(body.requiresUserKey ?? body.requires_user_key);
   const isEnabled = body.isEnabled !== false && body.is_enabled !== false;
   const sortOrder = Number(body.sortOrder ?? body.sort_order ?? 0) || 0;
 
@@ -133,14 +157,28 @@ webMapServicesRouter.post("/catalog", async (req, res) => {
     res.status(400).json({ error: "标识 code 仅允许小写字母、数字、下划线" });
     return;
   }
+  const rawMode = String(
+    (body as Record<string, unknown>).tileKeyMode ??
+      (body as Record<string, unknown>).tile_key_mode ??
+      "proxy"
+  ).toLowerCase();
+  if (rawMode !== "proxy" && rawMode !== "browser") {
+    res.status(400).json({ error: "tileKeyMode 仅支持 proxy 或 browser" });
+    return;
+  }
+  if (rawMode === "browser" && !templateNeedsKey(serviceUrl)) {
+    res.status(400).json({ error: "浏览器直连模式要求服务地址中含 {tk} 或 {key}" });
+    return;
+  }
+  const tileKeyMode: "proxy" | "browser" = rawMode === "browser" ? "browser" : "proxy";
 
   try {
     const pool = getDbPool();
     const ins = await pool.query<{ id: string }>(
       `
       INSERT INTO auth.web_map_service_catalog
-        (code, name, service_type, service_url, admin_api_key, requires_user_key, is_enabled, sort_order)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        (code, name, service_type, service_url, admin_api_key, requires_user_key, tile_key_mode, is_enabled, sort_order)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id::text
       `,
       [
@@ -150,6 +188,7 @@ webMapServicesRouter.post("/catalog", async (req, res) => {
         serviceUrl,
         adminApiKey && adminApiKey.trim() ? adminApiKey.trim() : null,
         requiresUserKey,
+        tileKeyMode,
         isEnabled,
         sortOrder
       ]
@@ -235,6 +274,15 @@ webMapServicesRouter.patch("/catalog/:id", async (req, res) => {
       values.push(s || null);
     }
   }
+  if (body.tileKeyMode !== undefined || body.tile_key_mode !== undefined) {
+    const tkm = String(body.tileKeyMode ?? body.tile_key_mode ?? "proxy").toLowerCase();
+    if (tkm !== "proxy" && tkm !== "browser") {
+      res.status(400).json({ error: "tileKeyMode 仅支持 proxy 或 browser" });
+      return;
+    }
+    fields.push(`tile_key_mode = $${n++}`);
+    values.push(tkm);
+  }
 
   if (fields.length === 0) {
     res.status(400).json({ error: "无更新字段" });
@@ -246,6 +294,35 @@ webMapServicesRouter.patch("/catalog/:id", async (req, res) => {
 
   try {
     const pool = getDbPool();
+    if (
+      body.serviceUrl !== undefined ||
+      body.service_url !== undefined ||
+      body.tileKeyMode !== undefined ||
+      body.tile_key_mode !== undefined
+    ) {
+      const cur = await pool.query<{ service_url: string; tile_key_mode: string }>(
+        `SELECT service_url, COALESCE(tile_key_mode, 'proxy') AS tile_key_mode
+         FROM auth.web_map_service_catalog WHERE id = $1`,
+        [id]
+      );
+      if (cur.rowCount === 0) {
+        res.status(404).json({ error: "记录不存在" });
+        return;
+      }
+      let nextUrl = cur.rows[0].service_url;
+      let nextMode = String(cur.rows[0].tile_key_mode ?? "proxy").toLowerCase();
+      if (body.serviceUrl !== undefined || body.service_url !== undefined) {
+        nextUrl = String(body.serviceUrl ?? body.service_url ?? "").trim();
+      }
+      if (body.tileKeyMode !== undefined || body.tile_key_mode !== undefined) {
+        nextMode = String(body.tileKeyMode ?? body.tile_key_mode ?? "proxy").toLowerCase();
+      }
+      if (nextMode === "browser" && !templateNeedsKey(nextUrl)) {
+        res.status(400).json({ error: "浏览器直连模式要求服务地址中含 {tk} 或 {key}" });
+        return;
+      }
+    }
+
     const r = await pool.query(
       `UPDATE auth.web_map_service_catalog SET ${fields.join(", ")} WHERE id = $${n}`,
       values
@@ -291,6 +368,75 @@ webMapServicesRouter.delete("/catalog/:id", async (req, res) => {
   }
 });
 
+/** GET /api/web-map-services/me/:catalogId/browser-tiles 浏览器直连：返回地址模板与有效 key */
+webMapServicesRouter.get("/me/:catalogId/browser-tiles", async (req, res) => {
+  if (!isDbConfigured()) {
+    res.status(503).json({ error: "数据库未配置" });
+    return;
+  }
+
+  const catalogId = Number(req.params.catalogId);
+  if (!Number.isFinite(catalogId) || catalogId <= 0) {
+    res.status(400).json({ error: "非法 catalogId" });
+    return;
+  }
+
+  try {
+    const pool = getDbPool();
+    const cat = await pool.query<{
+      service_url: string;
+      admin_api_key: string | null;
+      requires_user_key: boolean;
+      is_enabled: boolean;
+      tile_key_mode: string;
+    }>(
+      `SELECT service_url, admin_api_key, requires_user_key, is_enabled,
+              COALESCE(tile_key_mode, 'proxy') AS tile_key_mode
+       FROM auth.web_map_service_catalog WHERE id = $1`,
+      [catalogId]
+    );
+    if (cat.rowCount === 0) {
+      res.status(404).json({ error: "服务不存在" });
+      return;
+    }
+    if (!cat.rows[0].is_enabled) {
+      res.status(403).json({ error: "该服务已全站停用" });
+      return;
+    }
+    if (cat.rows[0].tile_key_mode !== "browser") {
+      res.status(400).json({ error: "该服务为服务端代理模式，请使用 /api/web-map-services/tiles/ 拉瓦片" });
+      return;
+    }
+
+    const u = await pool.query<{ user_api_key: string | null; is_enabled: boolean }>(
+      `SELECT user_api_key, is_enabled FROM auth.user_web_map_services
+       WHERE user_id = $1 AND catalog_id = $2`,
+      [req.user!.userId, catalogId]
+    );
+    const userRow = u.rows[0];
+    if (!userRow || userRow.is_enabled !== true) {
+      res.status(403).json({ error: "该服务对当前用户不可用" });
+      return;
+    }
+
+    const userKey = userRow.user_api_key;
+    const adminKey = cat.rows[0].admin_api_key;
+    const requiresUserKey = cat.rows[0].requires_user_key;
+    const serviceUrl = String(cat.rows[0].service_url);
+    const apiKey = effectiveTileKey(userKey, adminKey, requiresUserKey);
+    if (templateNeedsKey(serviceUrl) && !apiKey) {
+      res.status(403).json({ error: "未配置有效密钥" });
+      return;
+    }
+
+    res.json({ serviceUrl, apiKey });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[web-map-services GET browser-tiles]", e);
+    res.status(500).json({ error: msg });
+  }
+});
+
 /** PUT /api/web-map-services/me/:catalogId 当前用户设置自己的 key 与个人启用（密钥仅存服务端） */
 webMapServicesRouter.put("/me/:catalogId", async (req, res) => {
   if (!isDbConfigured()) {
@@ -321,8 +467,11 @@ webMapServicesRouter.put("/me/:catalogId", async (req, res) => {
     const cat = await pool.query<{
       is_enabled: boolean;
       requires_user_key: boolean;
+      service_url: string;
+      admin_api_key: string | null;
     }>(
-      `SELECT is_enabled, requires_user_key FROM auth.web_map_service_catalog WHERE id = $1`,
+      `SELECT is_enabled, requires_user_key, service_url, admin_api_key
+       FROM auth.web_map_service_catalog WHERE id = $1`,
       [catalogId]
     );
     if (cat.rowCount === 0) {
@@ -335,6 +484,9 @@ webMapServicesRouter.put("/me/:catalogId", async (req, res) => {
     }
 
     const requiresUserKey = cat.rows[0].requires_user_key;
+    const serviceUrl = String(cat.rows[0].service_url);
+    const adminKey = cat.rows[0].admin_api_key;
+    const needsKey = templateNeedsKey(serviceUrl);
 
     const cur = await pool.query<{ user_api_key: string | null; is_enabled: boolean }>(
       `SELECT user_api_key, is_enabled FROM auth.user_web_map_services WHERE user_id = $1 AND catalog_id = $2`,
@@ -355,6 +507,14 @@ webMapServicesRouter.put("/me/:catalogId", async (req, res) => {
 
     if (requiresUserKey && (!nextKey || nextKey.length === 0)) {
       nextEnabled = false;
+    }
+
+    const eff = effectiveTileKey(nextKey, adminKey, requiresUserKey);
+    if (hasEnabledField && nextEnabled && needsKey && !eff) {
+      res.status(400).json({
+        error: "未配置有效密钥：请填写用户密钥，或由管理员配置代填密钥（正式环境可开启仅允许用户密钥）"
+      });
+      return;
     }
 
     await pool.query(
@@ -453,8 +613,11 @@ webMapServicesRouter.get(
         service_url: string;
         requires_user_key: boolean;
         is_enabled: boolean;
+        admin_api_key: string | null;
+        tile_key_mode: string;
       }>(
-        `SELECT service_type, service_url, requires_user_key, is_enabled
+        `SELECT service_type, service_url, requires_user_key, is_enabled, admin_api_key,
+                COALESCE(tile_key_mode, 'proxy') AS tile_key_mode
          FROM auth.web_map_service_catalog
          WHERE id = $1`,
         [catalogId]
@@ -471,6 +634,10 @@ webMapServicesRouter.get(
         res.status(400).send("仅支持 xyz");
         return;
       }
+      if (cat.rows[0].tile_key_mode === "browser") {
+        res.status(400).send("该服务为浏览器直连模式");
+        return;
+      }
 
       const u = await pool.query<{ user_api_key: string | null; is_enabled: boolean }>(
         `SELECT user_api_key, is_enabled
@@ -483,26 +650,18 @@ webMapServicesRouter.get(
         res.status(403).send("该服务对当前用户不可用");
         return;
       }
-      const key = String(userRow.user_api_key ?? "").trim();
-      if (!key) {
-        res.status(403).send("未配置用户密钥");
-        return;
-      }
-      if (cat.rows[0].requires_user_key && !key) {
-        res.status(403).send("未配置用户密钥");
+      const serviceUrl = String(cat.rows[0].service_url);
+      const key = effectiveTileKey(
+        userRow.user_api_key,
+        cat.rows[0].admin_api_key,
+        cat.rows[0].requires_user_key
+      );
+      if (templateNeedsKey(serviceUrl) && !key) {
+        res.status(403).send("未配置有效密钥");
         return;
       }
 
-      const url = applyXyzTemplate(String(cat.rows[0].service_url), { x, y, z, key });
-      // TODO: 临时排障日志（包含 key 尾号），正式发布前必须删除或改为可控开关
-      const safeUrl = url.replace(
-        /([?&](?:tk|key)=)([^&]*)/gi,
-        (_m, prefix: string, value: string) => {
-          const tail3 = (value ?? "").slice(-3);
-          return `${prefix}***${tail3}`;
-        }
-      );
-      console.log("[web-map-services tiles] upstream", { catalogId, x, y, z, url: safeUrl });
+      const url = applyXyzTemplate(serviceUrl, { x, y, z, key });
       await proxyTile(res, url);
     } catch (e) {
       console.error("[web-map-services tiles]", e);
