@@ -64,6 +64,7 @@ menus:
   pureHome: 首页
   pureLogin: 登录
   pureData: 数据
+  pureUserManage: 用户管理
   pureFunction: 功能
   pureAbnormal: 异常页面
   purePageNotFound: "404"

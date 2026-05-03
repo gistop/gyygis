@@ -64,6 +64,7 @@ menus:
   pureHome: Home
   pureLogin: Login
   pureData: Data
+  pureUserManage: User Management
   pureFunction: Features
   pureAbnormal: Abnormal Page
   purePageNotFound: "404"
