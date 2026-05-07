@@ -148,6 +148,7 @@
           <el-radio-button value="map">地图</el-radio-button>
           <el-radio-button value="chart">统计图</el-radio-button>
           <el-radio-button value="table">表格</el-radio-button>
+          <el-radio-button value="time">时间</el-radio-button>
           <el-radio-button value="image">图片</el-radio-button>
           <el-radio-button value="auto">占位（自动）</el-radio-button>
         </el-radio-group>
@@ -249,6 +250,14 @@
           </el-select>
           <p class="muted panelEditHint">提示：字段来自 PostGIS 表结构（默认不含几何字段）。</p>
         </template>
+        <template v-if="editPanelMode === 'time'">
+          <div class="panelEditForm__label">显示方式</div>
+          <el-radio-group v-model="editTimeDisplayMode" class="panelEditRadios">
+            <el-radio-button value="digital">数字模式（24 小时制）</el-radio-button>
+            <el-radio-button value="dial">表盘模式</el-radio-button>
+          </el-radio-group>
+          <p class="muted panelEditHint">数字模式为本地时间的 24 小时制（HH:mm:ss）；表盘为 12 小时指针式。</p>
+        </template>
         <div class="panelEditActions">
           <el-button
             type="primary"
@@ -301,10 +310,12 @@ import type { DockviewChartKind } from "@/charts/types";
 import { isDockviewChartKind } from "@/charts/types";
 import {
   coercePanelImageObjectFit,
+  coerceTimeDisplayMode,
   getEffectivePanelContent,
   mergePanelContentParams,
   type PanelContentRadio,
-  type PanelImageObjectFit
+  type PanelImageObjectFit,
+  type TimeDisplayMode
 } from "@/panelContentMode";
 import { fetchWebMapServices, type WebMapServiceRow } from "@/api/webMapServices";
 import {
@@ -566,6 +577,7 @@ const editImageUrl = refSetup("");
 const editImageObjectFit = refSetup<PanelImageObjectFit>("fill");
 const editTableLayerName = refSetup("");
 const editTableFields = refSetup<string[]>([]);
+const editTimeDisplayMode = refSetup<TimeDisplayMode>("digital");
 
 const tableLayers = refSetup<MapLayerInfo[]>([]);
 const tableLayersLoading = refSetup(false);
@@ -601,7 +613,7 @@ const dragFromIndex = refSetup<number | null>(null);
 function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
   const p = getBusinessParams();
   const pc = p.panelContent;
-  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image") {
+  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image" || pc === "time") {
     editPanelMode.value = pc;
   } else {
     const eff = getEffectivePanelContent(p, panelId);
@@ -618,6 +630,7 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
   editTableFields.value = Array.isArray(p.tableFields)
     ? (p.tableFields as unknown[]).map(x => String(x)).filter(Boolean)
     : [];
+  editTimeDisplayMode.value = coerceTimeDisplayMode(p.timeDisplayMode);
 
   // mapLayers（新版）优先；否则兼容旧的 mapCatalogId/mapCatalogIds
   const rawLayers = Array.isArray(p.mapLayers) ? (p.mapLayers as unknown[]) : null;
@@ -689,7 +702,8 @@ function applyPanelContentFromDrawer() {
     imageUrl: editImageUrl.value,
     imageObjectFit: editImageObjectFit.value,
     tableLayerName: editTableLayerName.value,
-    tableFields: editTableFields.value
+    tableFields: editTableFields.value,
+    timeDisplayMode: editTimeDisplayMode.value
   });
 
   if (editPanelMode.value === "map") {

@@ -3,10 +3,12 @@ import { computed, defineComponent, h, inject, ref } from "vue";
 import TiandituMapPanel from "@/panels/TiandituMapPanel.vue";
 import EchartsPanel from "@/panels/EchartsPanel.vue";
 import DockviewEmbedTablePanel from "@/panels/DockviewEmbedTablePanel.vue";
+import DockviewTimePanel from "@/panels/DockviewTimePanel.vue";
 import { isDockviewChartKind } from "@/charts/types";
 import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
 import {
   coercePanelImageObjectFit,
+  coerceTimeDisplayMode,
   DEFAULT_PANEL_IMAGE_URL,
   getEffectivePanelContent
 } from "@/panelContentMode";
@@ -94,6 +96,10 @@ export default defineComponent({
       coercePanelImageObjectFit(innerParams.value.imageObjectFit)
     );
 
+    const timeDisplayModeResolved = computed(() =>
+      coerceTimeDisplayMode(innerParams.value.timeDisplayMode)
+    );
+
     function readMapLayersParam(): unknown[] | null {
       const raw = innerParams.value.mapLayers;
       return Array.isArray(raw) ? (raw as unknown[]) : null;
@@ -105,6 +111,7 @@ export default defineComponent({
       if (chartKindResolved.value) parts.push(`chart:${chartKindResolved.value}`);
       if (embedKind.value) parts.push(`embed:${embedKind.value}`);
       if (effectiveContent.value === "image") parts.push("image");
+      if (effectiveContent.value === "time") parts.push(`time:${timeDisplayModeResolved.value}`);
       if (effectiveContent.value === "map" && readMapLayersParam()?.length) parts.push("layers");
       return parts.length ? ` · ${parts.join(" · ")}` : "";
     });
@@ -204,17 +211,19 @@ export default defineComponent({
             ? h(EchartsPanel, { chartKind: chartKindResolved.value ?? "bar" })
             : effectiveContent.value === "table"
               ? h(DockviewEmbedTablePanel, { params: innerParams.value })
-              : effectiveContent.value === "image"
-                ? h("div", { class: "gridPanel__imgWrap" }, [
-                    h("img", {
-                      class: "gridPanel__img",
-                      src: imageUrlResolved.value,
-                      alt: "",
-                      draggable: false,
-                      style: { objectFit: imageObjectFitResolved.value }
-                    })
-                  ])
-                : h("div", { class: "gridPanel__body" }, [
+              : effectiveContent.value === "time"
+                ? h(DockviewTimePanel, { displayMode: timeDisplayModeResolved.value })
+                : effectiveContent.value === "image"
+                  ? h("div", { class: "gridPanel__imgWrap" }, [
+                      h("img", {
+                        class: "gridPanel__img",
+                        src: imageUrlResolved.value,
+                        alt: "",
+                        draggable: false,
+                        style: { objectFit: imageObjectFitResolved.value }
+                      })
+                    ])
+                  : h("div", { class: "gridPanel__body" }, [
                     h(
                       "div",
                       { class: "gridPanel__hint" },

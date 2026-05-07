@@ -5,9 +5,18 @@ import { isDockviewChartKind } from "@/charts/types";
 export const DEFAULT_PANEL_IMAGE_URL =
   "https://picsum.photos/id/237/800/450";
 
-export type PanelContentRadio = "map" | "chart" | "table" | "image" | "auto";
+export type PanelContentRadio = "map" | "chart" | "table" | "image" | "time" | "auto";
 
-export type EffectivePanelContent = "map" | "chart" | "table" | "image" | "none";
+export type EffectivePanelContent = "map" | "chart" | "table" | "image" | "time" | "none";
+
+/** 时间面板：24 小时数字时钟 / 表盘 */
+export type TimeDisplayMode = "digital" | "dial";
+
+export function coerceTimeDisplayMode(raw: unknown): TimeDisplayMode {
+  const s = String(raw ?? "").toLowerCase();
+  if (s === "dial" || s === "analog") return "dial";
+  return "digital";
+}
 
 /** 图片面板：拉伸铺满（不裁切、可不保持宽高比） / 完整显示（保持比例、可留边） */
 export type PanelImageObjectFit = "fill" | "contain";
@@ -28,7 +37,7 @@ export function getEffectivePanelContent(
   panelId: string
 ): EffectivePanelContent {
   const pc = params.panelContent;
-  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image") {
+  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image" || pc === "time") {
     return pc;
   }
   const kind = String(params.kind ?? "");
@@ -38,6 +47,7 @@ export function getEffectivePanelContent(
   if (isDockviewChartKind(chartRaw)) return "chart";
   if (embedKind === "table") return "table";
   if (embedKind === "image") return "image";
+  if (embedKind === "time") return "time";
   return "none";
 }
 
@@ -54,6 +64,7 @@ export function mergePanelContentParams(
     imageObjectFit?: PanelImageObjectFit;
     tableLayerName?: string;
     tableFields?: string[];
+    timeDisplayMode?: TimeDisplayMode;
   }
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
@@ -70,6 +81,7 @@ export function mergePanelContentParams(
     delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.timeDisplayMode;
   } else if (mode === "chart") {
     delete out.kind;
     delete out.embedKind;
@@ -77,6 +89,7 @@ export function mergePanelContentParams(
     delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.timeDisplayMode;
     const ck = opts?.chartKind;
     out.chartKind = ck && isDockviewChartKind(ck) ? ck : "bar";
   } else if (mode === "table") {
@@ -84,6 +97,7 @@ export function mergePanelContentParams(
     delete out.chartKind;
     delete out.imageUrl;
     delete out.imageObjectFit;
+    delete out.timeDisplayMode;
     out.embedKind = "table";
     const layerName = (opts?.tableLayerName ?? "").trim();
     if (layerName) out.tableLayerName = layerName;
@@ -98,10 +112,20 @@ export function mergePanelContentParams(
     delete out.chartKind;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.timeDisplayMode;
     out.embedKind = "image";
     const url = (opts?.imageUrl ?? "").trim();
     out.imageUrl = url || DEFAULT_PANEL_IMAGE_URL;
     out.imageObjectFit = coercePanelImageObjectFit(opts?.imageObjectFit ?? out.imageObjectFit);
+  } else if (mode === "time") {
+    delete out.kind;
+    delete out.chartKind;
+    delete out.imageUrl;
+    delete out.imageObjectFit;
+    delete out.tableLayerName;
+    delete out.tableFields;
+    out.embedKind = "time";
+    out.timeDisplayMode = coerceTimeDisplayMode(opts?.timeDisplayMode ?? out.timeDisplayMode);
   }
   return out;
 }
