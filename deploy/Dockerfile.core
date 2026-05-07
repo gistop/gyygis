@@ -1,5 +1,5 @@
 # 构建上下文：仓库根；@gyygis/core 为地图能力演示 / 调试前端
-FROM node:20-alpine AS build-stage
+FROM node:24-alpine AS build-stage
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 

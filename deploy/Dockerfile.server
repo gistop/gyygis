@@ -1,5 +1,5 @@
 # 构建上下文：仓库根（见 docker-compose.yml 中 context: ..）
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
@@ -17,7 +17,7 @@ COPY packages/gyygis-server/src packages/gyygis-server/src
 RUN pnpm --filter @gyygis/server build
 RUN pnpm --filter @gyygis/server deploy --prod /out/server
 
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /out/server/ ./

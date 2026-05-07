@@ -1,8 +1,8 @@
-FROM node:20-alpine as build-stage
+FROM node:24-alpine as build-stage
 
 WORKDIR /app
 RUN corepack enable
-RUN corepack prepare pnpm@latest --activate
+RUN corepack prepare pnpm@9.15.0 --activate
 
 RUN npm config set registry https://registry.npmmirror.com
 
