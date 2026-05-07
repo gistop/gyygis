@@ -19,6 +19,13 @@ export type MapLayerRowsResponse = {
   rows: Record<string, unknown>[];
 };
 
+export type MapLayerFieldStat = {
+  field: string;
+  avg: number | null;
+  min: number | null;
+  max: number | null;
+};
+
 type LayersResponse = { layers: MapLayerInfo[]; error?: string };
 type FieldsResponse = { fields: MapLayerField[]; error?: string };
 type RowsResponse = MapLayerRowsResponse & { error?: string };
@@ -86,3 +93,17 @@ export async function fetchLayerRows(args: {
   };
 }
 
+type StatsResponse = { stats: MapLayerFieldStat[]; skippedNonNumeric?: string[]; error?: string };
+
+export async function fetchLayerStats(args: { layerName: string; fields: string[] }): Promise<MapLayerFieldStat[]> {
+  const { layerName, fields } = args;
+  const qs = new URLSearchParams();
+  if (fields.length) qs.set("fields", fields.join(","));
+  const res = await fetch(`/api/maps/layers/${encodeURIComponent(layerName)}/stats?${qs.toString()}`, {
+    headers: authHeadersJson()
+  });
+  const body = (await res.json()) as StatsResponse;
+  if (!res.ok) throw new Error(httpErr(res, body));
+  if (!Array.isArray(body.stats)) throw new Error(body.error || "加载统计失败");
+  return body.stats;
+}

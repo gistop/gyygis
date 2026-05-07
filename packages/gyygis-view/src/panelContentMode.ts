@@ -5,9 +5,9 @@ import { isDockviewChartKind } from "@/charts/types";
 export const DEFAULT_PANEL_IMAGE_URL =
   "https://picsum.photos/id/237/800/450";
 
-export type PanelContentRadio = "map" | "chart" | "table" | "image" | "time" | "auto";
+export type PanelContentRadio = "map" | "chart" | "table" | "stats" | "image" | "time" | "auto";
 
-export type EffectivePanelContent = "map" | "chart" | "table" | "image" | "time" | "none";
+export type EffectivePanelContent = "map" | "chart" | "table" | "stats" | "image" | "time" | "none";
 
 /** 时间面板：24 小时数字时钟 / 表盘 */
 export type TimeDisplayMode = "digital" | "dial";
@@ -37,7 +37,7 @@ export function getEffectivePanelContent(
   panelId: string
 ): EffectivePanelContent {
   const pc = params.panelContent;
-  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image" || pc === "time") {
+  if (pc === "map" || pc === "chart" || pc === "table" || pc === "stats" || pc === "image" || pc === "time") {
     return pc;
   }
   const kind = String(params.kind ?? "");
@@ -64,6 +64,8 @@ export function mergePanelContentParams(
     imageObjectFit?: PanelImageObjectFit;
     tableLayerName?: string;
     tableFields?: string[];
+    statsLayerName?: string;
+    statsFields?: string[];
     timeDisplayMode?: TimeDisplayMode;
   }
 ): Record<string, unknown> {
@@ -81,6 +83,8 @@ export function mergePanelContentParams(
     delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.statsLayerName;
+    delete out.statsFields;
     delete out.timeDisplayMode;
   } else if (mode === "chart") {
     delete out.kind;
@@ -89,6 +93,8 @@ export function mergePanelContentParams(
     delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.statsLayerName;
+    delete out.statsFields;
     delete out.timeDisplayMode;
     const ck = opts?.chartKind;
     out.chartKind = ck && isDockviewChartKind(ck) ? ck : "bar";
@@ -98,6 +104,8 @@ export function mergePanelContentParams(
     delete out.imageUrl;
     delete out.imageObjectFit;
     delete out.timeDisplayMode;
+    delete out.statsLayerName;
+    delete out.statsFields;
     out.embedKind = "table";
     const layerName = (opts?.tableLayerName ?? "").trim();
     if (layerName) out.tableLayerName = layerName;
@@ -107,11 +115,30 @@ export function mergePanelContentParams(
       if (f.length) out.tableFields = f;
       else delete out.tableFields;
     }
+  } else if (mode === "stats") {
+    delete out.kind;
+    delete out.chartKind;
+    delete out.imageUrl;
+    delete out.imageObjectFit;
+    delete out.tableLayerName;
+    delete out.tableFields;
+    delete out.timeDisplayMode;
+    out.embedKind = "stats";
+    const statsLayer = (opts?.statsLayerName ?? "").trim();
+    if (statsLayer) out.statsLayerName = statsLayer;
+    else delete out.statsLayerName;
+    if (Array.isArray(opts?.statsFields)) {
+      const f = opts!.statsFields!.map(s => String(s).trim()).filter(Boolean);
+      if (f.length) out.statsFields = f;
+      else delete out.statsFields;
+    }
   } else if (mode === "image") {
     delete out.kind;
     delete out.chartKind;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.statsLayerName;
+    delete out.statsFields;
     delete out.timeDisplayMode;
     out.embedKind = "image";
     const url = (opts?.imageUrl ?? "").trim();
@@ -124,6 +151,8 @@ export function mergePanelContentParams(
     delete out.imageObjectFit;
     delete out.tableLayerName;
     delete out.tableFields;
+    delete out.statsLayerName;
+    delete out.statsFields;
     out.embedKind = "time";
     out.timeDisplayMode = coerceTimeDisplayMode(opts?.timeDisplayMode ?? out.timeDisplayMode);
   }

@@ -148,6 +148,7 @@
           <el-radio-button value="map">地图</el-radio-button>
           <el-radio-button value="chart">统计图</el-radio-button>
           <el-radio-button value="table">表格</el-radio-button>
+          <el-radio-button value="stats">统计值</el-radio-button>
           <el-radio-button value="time">时间</el-radio-button>
           <el-radio-button value="image">图片</el-radio-button>
           <el-radio-button value="auto">占位（自动）</el-radio-button>
@@ -250,6 +251,52 @@
           </el-select>
           <p class="muted panelEditHint">提示：字段来自 PostGIS 表结构（默认不含几何字段）。</p>
         </template>
+        <template v-if="editPanelMode === 'stats'">
+          <div class="panelEditForm__label">地图服务图层</div>
+          <el-select
+            v-model="editStatsLayerName"
+            style="width: 100%"
+            filterable
+            clearable
+            placeholder="选择已发布图层"
+            :loading="tableLayersLoading"
+            :disabled="tableLayersLoading"
+          >
+            <el-option
+              v-for="it in tableLayers"
+              :key="it.name"
+              :label="it.enabled === false ? `${it.name}（已停用）` : it.name"
+              :value="it.name"
+              :disabled="it.enabled === false"
+            />
+          </el-select>
+          <p class="muted panelEditHint">来源：当前登录用户已发布的 GeoServer 图层（/api/maps/layers）。</p>
+
+          <div class="panelEditForm__label">统计字段（数值型）</div>
+          <el-select
+            v-model="editStatsFields"
+            style="width: 100%"
+            multiple
+            filterable
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择要统计的字段（可多选）"
+            :loading="statsFieldsLoading"
+            :disabled="!editStatsLayerName || statsFieldsLoading"
+          >
+            <el-option
+              v-for="f in statsFieldOptions"
+              :key="f.name"
+              :label="`${f.name}（${f.dataType}）`"
+              :value="f.name"
+              :disabled="!isNumericFieldForStats(f)"
+            />
+          </el-select>
+          <p class="muted panelEditHint">
+            仅 smallint/integer/bigint/real/double/numeric/decimal 列参与平均值、最小值、最大值；文本等类型不可选。
+          </p>
+        </template>
         <template v-if="editPanelMode === 'time'">
           <div class="panelEditForm__label">显示方式</div>
           <el-radio-group v-model="editTimeDisplayMode" class="panelEditRadios">
@@ -332,6 +379,21 @@ import {
   type MapLayerField,
   type MapLayerInfo
 } from "@/api/maps";
+
+function isNumericFieldForStats(f: MapLayerField): boolean {
+  const t = (f.dataType || "").toLowerCase();
+  const u = (f.udtName || "").toLowerCase();
+  if (u === "geometry") return false;
+  return (
+    t === "smallint" ||
+    t === "integer" ||
+    t === "bigint" ||
+    t === "real" ||
+    t === "double precision" ||
+    t === "numeric" ||
+    t === "decimal"
+  );
+}
 
 const dockviewApi: Ref<DockviewApi | null> = refSetup(null);
 const homeRoot = refSetup<HTMLElement | null>(null);
@@ -577,12 +639,16 @@ const editImageUrl = refSetup("");
 const editImageObjectFit = refSetup<PanelImageObjectFit>("fill");
 const editTableLayerName = refSetup("");
 const editTableFields = refSetup<string[]>([]);
+const editStatsLayerName = refSetup("");
+const editStatsFields = refSetup<string[]>([]);
 const editTimeDisplayMode = refSetup<TimeDisplayMode>("digital");
 
 const tableLayers = refSetup<MapLayerInfo[]>([]);
 const tableLayersLoading = refSetup(false);
 const tableFields = refSetup<MapLayerField[]>([]);
 const tableFieldsLoading = refSetup(false);
+const statsFieldOptions = refSetup<MapLayerField[]>([]);
+const statsFieldsLoading = refSetup(false);
 
 const webMapServicesLoading = refSetup(false);
 const webMapServices = refSetup<WebMapServiceRow[]>([]);
@@ -613,7 +679,7 @@ const dragFromIndex = refSetup<number | null>(null);
 function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
   const p = getBusinessParams();
   const pc = p.panelContent;
-  if (pc === "map" || pc === "chart" || pc === "table" || pc === "image" || pc === "time") {
+  if (pc === "map" || pc === "chart" || pc === "table" || pc === "stats" || pc === "image" || pc === "time") {
     editPanelMode.value = pc;
   } else {
     const eff = getEffectivePanelContent(p, panelId);
@@ -629,6 +695,10 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
   editTableLayerName.value = typeof p.tableLayerName === "string" ? p.tableLayerName : "";
   editTableFields.value = Array.isArray(p.tableFields)
     ? (p.tableFields as unknown[]).map(x => String(x)).filter(Boolean)
+    : [];
+  editStatsLayerName.value = typeof p.statsLayerName === "string" ? p.statsLayerName : "";
+  editStatsFields.value = Array.isArray(p.statsFields)
+    ? (p.statsFields as unknown[]).map(x => String(x)).filter(Boolean)
     : [];
   editTimeDisplayMode.value = coerceTimeDisplayMode(p.timeDisplayMode);
 
@@ -703,6 +773,8 @@ function applyPanelContentFromDrawer() {
     imageObjectFit: editImageObjectFit.value,
     tableLayerName: editTableLayerName.value,
     tableFields: editTableFields.value,
+    statsLayerName: editStatsLayerName.value,
+    statsFields: editStatsFields.value,
     timeDisplayMode: editTimeDisplayMode.value
   });
 
@@ -915,15 +987,42 @@ async function refreshTableFieldsForLayer(layerName: string) {
   }
 }
 
+async function refreshStatsFieldsForLayer(layerName: string) {
+  if (!layerName) {
+    statsFieldOptions.value = [];
+    editStatsFields.value = [];
+    return;
+  }
+  statsFieldsLoading.value = true;
+  try {
+    statsFieldOptions.value = await fetchLayerFields(layerName);
+    const allowed = new Set(statsFieldOptions.value.map(x => x.name));
+    const numericAllowed = new Set(
+      statsFieldOptions.value.filter(isNumericFieldForStats).map(x => x.name)
+    );
+    editStatsFields.value = editStatsFields.value.filter(f => allowed.has(f) && numericAllowed.has(f));
+  } catch (e) {
+    statsFieldOptions.value = [];
+    editStatsFields.value = [];
+    ElMessage.warning(e instanceof Error ? e.message : String(e));
+  } finally {
+    statsFieldsLoading.value = false;
+  }
+}
+
 watchSetup(
   () => [panelEditDrawerVisible.value, editPanelMode.value] as const,
   ([visible, mode]) => {
-    if (visible && mode === "table") void ensureTableLayersLoaded();
+    if (visible && (mode === "table" || mode === "stats")) void ensureTableLayersLoaded();
   }
 );
 
 watchSetup(editTableLayerName, layer => {
   void refreshTableFieldsForLayer(layer);
+});
+
+watchSetup(editStatsLayerName, layer => {
+  void refreshStatsFieldsForLayer(layer);
 });
 
 function triggerCornerAlert(reason: "multi-tap" | "long-press") {

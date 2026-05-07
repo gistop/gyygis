@@ -111,6 +111,134 @@ mapsRouter.get("/layers/:layerName/fields", requireAuth, async (req, res) => {
   }
 });
 
+function isNumericColumnForStats(dataType: string, udtName: string): boolean {
+  const t = (dataType || "").toLowerCase();
+  const u = (udtName || "").toLowerCase();
+  if (u === "geometry") return false;
+  return (
+    t === "smallint" ||
+    t === "integer" ||
+    t === "bigint" ||
+    t === "real" ||
+    t === "double precision" ||
+    t === "numeric" ||
+    t === "decimal"
+  );
+}
+
+/**
+ * GET /api/maps/layers/:layerName/stats
+ * 对当前用户 schema 下指定图层表，按所选数值字段聚合 AVG / MIN / MAX（服务端一次查询）。
+ *
+ * query:
+ * - fields: 逗号分隔字段名（必填至少一个；仅数值型 smallint/int/bigint/real/double/numeric/decimal 参与统计）
+ */
+mapsRouter.get("/layers/:layerName/stats", requireAuth, async (req, res) => {
+  if (!isDbConfigured()) {
+    res.status(503).json({ error: "数据库未配置" });
+    return;
+  }
+  const layerName = String(req.params.layerName ?? "");
+  const MAX_STATS_FIELDS = 24;
+  try {
+    const schema = tenantSchemaName(req.user!.userId);
+    if (!/^u_[1-9][0-9]*$/.test(schema)) throw new Error("非法 schema");
+    assertSafeIdentifier(layerName, "图层名");
+
+    const rawFields = typeof req.query.fields === "string" ? req.query.fields : "";
+    const wanted = rawFields
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (wanted.length === 0) {
+      res.status(400).json({ error: "缺少 query 参数 fields（逗号分隔字段名）" });
+      return;
+    }
+
+    const pool = getDbPool();
+    const colsRes = await pool.query(
+      `
+      SELECT column_name AS "name", data_type AS "dataType", udt_name AS "udtName"
+      FROM information_schema.columns
+      WHERE table_schema=$1 AND table_name=$2
+      ORDER BY ordinal_position ASC
+      `,
+      [schema, layerName]
+    );
+    if (colsRes.rowCount === 0) {
+      res.status(404).json({ error: "图层不存在" });
+      return;
+    }
+
+    const metaByName = new Map<string, { dataType: string; udtName: string }>();
+    for (const r of colsRes.rows) {
+      metaByName.set(String(r.name), {
+        dataType: String(r.dataType ?? ""),
+        udtName: String(r.udtName ?? "")
+      });
+    }
+
+    const nonGeomNames = colsRes.rows
+      .map(r => String(r.name))
+      .filter(n => {
+        const m = metaByName.get(n);
+        return m && m.udtName.toLowerCase() !== "geometry";
+      });
+    const allowedNonGeom = new Set(nonGeomNames);
+
+    const requested = wanted.filter(n => allowedNonGeom.has(n));
+    if (requested.length === 0) {
+      res.status(400).json({ error: "所选字段均不存在或非几何白名单外" });
+      return;
+    }
+
+    const numericRequested = requested.filter(n => {
+      const m = metaByName.get(n);
+      return m && isNumericColumnForStats(m.dataType, m.udtName);
+    });
+    if (numericRequested.length === 0) {
+      res.status(400).json({ error: "所选字段中无数值型列（支持 smallint/integer/bigint/real/double/numeric/decimal）" });
+      return;
+    }
+
+    const sel = numericRequested.slice(0, MAX_STATS_FIELDS);
+    const fromSql = `${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(layerName)}`;
+    const aggParts: string[] = [];
+    for (let i = 0; i < sel.length; i++) {
+      const f = sel[i]!;
+      const qf = pg.escapeIdentifier(f);
+      aggParts.push(`AVG(${qf}::double precision) AS ${pg.escapeIdentifier(`__avg_${i}`)}`);
+      aggParts.push(`MIN(${qf}::double precision) AS ${pg.escapeIdentifier(`__min_${i}`)}`);
+      aggParts.push(`MAX(${qf}::double precision) AS ${pg.escapeIdentifier(`__max_${i}`)}`);
+    }
+    const sql = `SELECT ${aggParts.join(", ")} FROM ${fromSql}`;
+    const result = await pool.query(sql);
+    const row = result.rows[0] as Record<string, unknown>;
+    const stats = sel.map((field, i) => {
+      const avgKey = `__avg_${i}`;
+      const minKey = `__min_${i}`;
+      const maxKey = `__max_${i}`;
+      const toNum = (v: unknown): number | null => {
+        if (v == null) return null;
+        const n = typeof v === "number" ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      return {
+        field,
+        avg: toNum(row[avgKey]),
+        min: toNum(row[minKey]),
+        max: toNum(row[maxKey])
+      };
+    });
+
+    res.json({ stats, skippedNonNumeric: requested.filter(n => !numericRequested.includes(n)) });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[maps/stats]", e);
+    res.status(400).json({ error: message || "统计失败" });
+  }
+});
+
 /**
  * GET /api/maps/layers/:layerName/rows
  * 查询当前用户 schema 下指定图层（表）的属性行（分页），仅返回所选字段（不含几何）。
