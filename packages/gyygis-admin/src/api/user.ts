@@ -13,6 +13,9 @@ export type UserResult = {
     roles: Array<string>;
     /** 按钮级别权限 */
     permissions: Array<string>;
+    userId: number;
+    /** 超级管理员（用户名 admin） */
+    isSuperAdmin: boolean;
     /** `token` */
     accessToken: string;
     /** 用于调用刷新`accessToken`的接口时所需的`token` */

@@ -5,6 +5,7 @@ export type AuthedUser = {
   userId: number;
   username: string;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
 };
 
 declare global {
@@ -76,7 +77,8 @@ export const requireAuth: RequestHandler = (req, res, next) => {
     req.user = {
       userId,
       username: String(claims.username ?? ""),
-      isAdmin: Boolean(claims.isAdmin)
+      isAdmin: Boolean(claims.isAdmin),
+      isSuperAdmin: Boolean(claims.isSuperAdmin)
     };
     next();
   } catch {

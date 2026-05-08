@@ -19,6 +19,8 @@ export interface DataInfo<T> {
   roles?: Array<string>;
   /** 当前登录用户的按钮级别权限 */
   permissions?: Array<string>;
+  userId?: number;
+  isSuperAdmin?: boolean;
 }
 
 export const userKey = "user-info";
@@ -31,12 +33,27 @@ export const TokenKey = "authorized-token";
  * */
 export const multipleTabsKey = "multiple-tabs";
 
-/** 获取`token` */
+/** 获取`token`（Cookie 仅存 access/refresh/expires；userId、isSuperAdmin 等在 localStorage 的 user-info，需合并） */
 export function getToken(): DataInfo<number> {
-  // 此处与`TokenKey`相同，此写法解决初始化时`Cookies`中不存在`TokenKey`报错
-  return Cookies.get(TokenKey)
-    ? JSON.parse(Cookies.get(TokenKey))
-    : storageLocal().getItem(userKey);
+  const rawCookie = Cookies.get(TokenKey);
+  let cookiePart: Partial<DataInfo<number>> | null = null;
+  if (rawCookie) {
+    try {
+      cookiePart = JSON.parse(rawCookie) as Partial<DataInfo<number>>;
+    } catch {
+      cookiePart = null;
+    }
+  }
+  const ls = storageLocal().getItem<DataInfo<number>>(userKey) ?? ({} as DataInfo<number>);
+  if (cookiePart?.accessToken) {
+    return {
+      ...ls,
+      accessToken: cookiePart.accessToken,
+      expires: (cookiePart.expires ?? ls.expires) as number,
+      refreshToken: (cookiePart.refreshToken ?? ls.refreshToken) as string
+    } as DataInfo<number>;
+  }
+  return ls as DataInfo<number>;
 }
 
 /**
@@ -70,7 +87,23 @@ export function setToken(data: DataInfo<Date>) {
       : { path: "/" }
   );
 
-  function setUserKey({ avatar, username, nickname, roles, permissions }) {
+  function setUserKey({
+    avatar,
+    username,
+    nickname,
+    roles,
+    permissions,
+    userId,
+    isSuperAdmin
+  }: {
+    avatar: string;
+    username: string;
+    nickname: string;
+    roles: Array<string>;
+    permissions: Array<string>;
+    userId?: number;
+    isSuperAdmin?: boolean;
+  }) {
     useUserStoreHook().SET_AVATAR(avatar);
     useUserStoreHook().SET_USERNAME(username);
     useUserStoreHook().SET_NICKNAME(nickname);
@@ -83,7 +116,9 @@ export function setToken(data: DataInfo<Date>) {
       username,
       nickname,
       roles,
-      permissions
+      permissions,
+      userId,
+      isSuperAdmin
     });
   }
 
@@ -94,25 +129,25 @@ export function setToken(data: DataInfo<Date>) {
       username,
       nickname: data?.nickname ?? "",
       roles,
-      permissions: data?.permissions ?? []
+      permissions: data?.permissions ?? [],
+      userId: data?.userId,
+      isSuperAdmin: data?.isSuperAdmin
     });
   } else {
-    const avatar =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.avatar ?? "";
-    const username =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.username ?? "";
-    const nickname =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.nickname ?? "";
-    const roles =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.roles ?? [];
-    const permissions =
-      storageLocal().getItem<DataInfo<number>>(userKey)?.permissions ?? [];
+    const prev = storageLocal().getItem<DataInfo<number>>(userKey);
+    const avatar = prev?.avatar ?? "";
+    const username = prev?.username ?? "";
+    const nickname = prev?.nickname ?? "";
+    const roles = prev?.roles ?? [];
+    const permissions = prev?.permissions ?? [];
     setUserKey({
       avatar,
       username,
       nickname,
       roles,
-      permissions
+      permissions,
+      userId: prev?.userId,
+      isSuperAdmin: prev?.isSuperAdmin
     });
   }
 }

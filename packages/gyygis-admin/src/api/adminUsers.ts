@@ -5,6 +5,7 @@ export type AdminUserRow = {
   username: string;
   isActive: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   geoserverReady: boolean;
 };
 
@@ -29,4 +30,14 @@ export function patchAdminUser(
   body: Partial<{ isActive: boolean; isAdmin: boolean }>
 ) {
   return http.request<AdminUserPatchResponse>("patch", `/api/admin/users/${id}`, { data: body });
+}
+
+export type AdminUserDeleteResponse = {
+  success: boolean;
+  data?: { id: number };
+  error?: string;
+};
+
+export function deleteAdminUser(id: number) {
+  return http.request<AdminUserDeleteResponse>("delete", `/api/admin/users/${id}`);
 }

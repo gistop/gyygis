@@ -136,3 +136,26 @@ export async function ensureGeoserverWorkspaceAndStore(
     `GeoServer 创建 PostGIS 数据存储失败 HTTP ${dsPost.status}: ${typeof dsPost.data === "string" ? dsPost.data.slice(0, 500) : JSON.stringify(dsPost.data).slice(0, 500)}`
   );
 }
+
+/** 删除租户 PostGIS schema（CASCADE 清掉 schema 内对象） */
+export async function dropPostgisTenantSchema(pool: pg.Pool, schema: string): Promise<void> {
+  if (!/^u_[1-9][0-9]*$/.test(schema)) {
+    throw new Error("非法 schema");
+  }
+  await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+}
+
+/** 尽力删除 GeoServer workspace（recurse）；404 视为已不存在 */
+export async function deleteGeoserverWorkspace(geo: GeoCreds, workspace: string): Promise<void> {
+  if (!/^u_[1-9][0-9]*$/.test(workspace)) {
+    throw new Error("非法 workspace");
+  }
+  const baseUrl = geo.geoserverUrl.replace(/\/$/, "");
+  const auth = geoserverAuth(geo.geoserverUser, geo.geoserverPassword);
+  const url = `${baseUrl}/rest/workspaces/${encodeURIComponent(workspace)}?recurse=true`;
+  const del = await axios.delete(url, { auth, validateStatus: () => true });
+  if (del.status === 200 || del.status === 204 || del.status === 404) return;
+  throw new Error(
+    `GeoServer 删除工作区失败 HTTP ${del.status}: ${typeof del.data === "string" ? del.data.slice(0, 400) : JSON.stringify(del.data).slice(0, 400)}`
+  );
+}

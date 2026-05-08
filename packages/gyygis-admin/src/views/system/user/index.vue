@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useDebounceFn } from "@vueuse/core";
+import { ElMessageBox } from "element-plus";
 import { message } from "@/utils/message";
+import { getToken } from "@/utils/auth";
 import {
+  deleteAdminUser,
   fetchAdminUsers,
   patchAdminUser,
   type AdminUserRow
@@ -27,6 +30,27 @@ const total = ref(0);
 const page = ref(1);
 const pageSize = ref(10);
 const searchQ = ref("");
+
+const currentSuper = computed(() => Boolean(getToken()?.isSuperAdmin));
+const currentUserId = computed(() => getToken()?.userId ?? 0);
+
+function canEditActive(row: AdminUserRow): boolean {
+  if (row.id === currentUserId.value) return false;
+  if (row.isSuperAdmin) return currentSuper.value;
+  if (row.isAdmin) return currentSuper.value;
+  return true;
+}
+
+function canEditAdmin(row: AdminUserRow): boolean {
+  return currentSuper.value && !row.isSuperAdmin;
+}
+
+function canDelete(row: AdminUserRow): boolean {
+  if (row.id === currentUserId.value) return false;
+  if (row.isSuperAdmin) return false;
+  if (row.isAdmin && !currentSuper.value) return false;
+  return true;
+}
 
 async function loadList() {
   loading.value = true;
@@ -63,6 +87,10 @@ watch(searchQ, () => {
 });
 
 async function onActiveChange(row: AdminUserRow, val: boolean) {
+  if (!canEditActive(row)) {
+    message("无权修改该用户的启用状态", { type: "warning" });
+    return;
+  }
   const prev = row.isActive;
   row.isActive = val;
   try {
@@ -75,6 +103,7 @@ async function onActiveChange(row: AdminUserRow, val: boolean) {
     if (res.data) {
       row.isActive = res.data.isActive;
       row.isAdmin = res.data.isAdmin;
+      row.isSuperAdmin = res.data.isSuperAdmin;
     }
     message("已更新启用状态", { type: "success" });
   } catch (e: unknown) {
@@ -84,6 +113,10 @@ async function onActiveChange(row: AdminUserRow, val: boolean) {
 }
 
 async function onAdminChange(row: AdminUserRow, val: boolean) {
+  if (!canEditAdmin(row)) {
+    message("仅超级管理员可修改管理员权限", { type: "warning" });
+    return;
+  }
   const prev = row.isAdmin;
   row.isAdmin = val;
   try {
@@ -96,11 +129,36 @@ async function onAdminChange(row: AdminUserRow, val: boolean) {
     if (res.data) {
       row.isActive = res.data.isActive;
       row.isAdmin = res.data.isAdmin;
+      row.isSuperAdmin = res.data.isSuperAdmin;
     }
     message("已更新管理员权限", { type: "success" });
   } catch (e: unknown) {
     row.isAdmin = prev;
     message(httpErrText(e) || "更新失败", { type: "error" });
+  }
+}
+
+async function onDeleteClick(row: AdminUserRow) {
+  if (!canDelete(row)) return;
+  try {
+    await ElMessageBox.confirm(`确定永久删除用户「${row.username}」？此操作不可恢复。`, "删除用户", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消"
+    });
+  } catch {
+    return;
+  }
+  try {
+    const res = await deleteAdminUser(row.id);
+    if (!res?.success) {
+      message(res?.error || "删除失败", { type: "error" });
+      return;
+    }
+    message("已删除", { type: "success" });
+    await loadList();
+  } catch (e: unknown) {
+    message(httpErrText(e) || "删除失败", { type: "error" });
   }
 }
 
@@ -127,7 +185,7 @@ loadList();
   <div class="p-4">
     <h1 class="mb-4 text-lg font-medium">用户管理</h1>
     <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-      仅管理员可见。支持按用户名搜索、分页；可启用/禁用账号（默认注册为启用）；可授予或撤销管理员（不能撤销自己或最后一名管理员）。
+      仅管理员可见。超级管理员（用户名为 admin）可授予或撤销管理员、启用/禁用任意用户、删除除内置超管外的账号；普通管理员仅能管理非管理员用户（启用/停用与硬删）。不能删除自己，不能删除内置超级管理员。
     </p>
     <div class="mb-4 flex flex-wrap items-center gap-2">
       <el-input
@@ -139,12 +197,20 @@ loadList();
       />
       <el-button type="primary" @click="onSearchClick">搜索</el-button>
     </div>
-    <el-table v-loading="loading" :data="tableData" border stripe style="width: 100%; max-width: 960px">
+    <el-table v-loading="loading" :data="tableData" border stripe style="width: 100%; max-width: 1080px">
       <el-table-column prop="id" label="ID" width="72" />
       <el-table-column prop="username" label="用户名" min-width="120" />
+      <el-table-column label="超级管理员" width="110" align="center">
+        <template #default="{ row }">
+          <el-tag :type="row.isSuperAdmin ? 'danger' : 'info'" size="small">
+            {{ row.isSuperAdmin ? "是" : "否" }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="启用" width="100" align="center">
         <template #default="{ row }">
           <el-switch
+            :disabled="!canEditActive(row)"
             :model-value="row.isActive"
             @update:model-value="(v: boolean) => onActiveChange(row, v)"
           />
@@ -153,6 +219,7 @@ loadList();
       <el-table-column label="管理员" width="100" align="center">
         <template #default="{ row }">
           <el-switch
+            :disabled="!canEditAdmin(row)"
             :model-value="row.isAdmin"
             @update:model-value="(v: boolean) => onAdminChange(row, v)"
           />
@@ -163,6 +230,20 @@ loadList();
           <el-tag :type="row.geoserverReady ? 'success' : 'info'" size="small">
             {{ row.geoserverReady ? "是" : "否" }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="100" align="center" fixed="right">
+        <template #default="{ row }">
+          <el-button
+            v-if="canDelete(row)"
+            type="danger"
+            link
+            size="small"
+            @click="onDeleteClick(row)"
+          >
+            删除
+          </el-button>
+          <span v-else class="text-gray-400 text-xs">—</span>
         </template>
       </el-table-column>
     </el-table>

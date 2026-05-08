@@ -5,6 +5,8 @@ export type AccessClaims = {
   sub: string; // user id as string
   username: string;
   isAdmin: boolean;
+  /** 超级管理员（用户名 admin），与 is_admin 并存 */
+  isSuperAdmin?: boolean;
   typ: "access";
   iat: number;
   exp: number;

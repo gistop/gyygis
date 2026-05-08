@@ -8,13 +8,20 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS auth.users (
-    id            BIGSERIAL PRIMARY KEY,
-    username      TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-    is_admin      BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id               BIGSERIAL PRIMARY KEY,
+    username         TEXT NOT NULL UNIQUE,
+    password_hash    TEXT NOT NULL,
+    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+    is_admin         BOOLEAN NOT NULL DEFAULT FALSE,
+    is_super_admin   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT users_super_only_admin CHECK (NOT is_super_admin OR username = 'admin'),
+    CONSTRAINT users_admin_must_be_super CHECK (username <> 'admin' OR is_super_admin = TRUE)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS auth_users_one_super_admin
+  ON auth.users ((1))
+  WHERE is_super_admin;
 
 -- 用户布局（Dockview 布局 JSON）
 CREATE TABLE IF NOT EXISTS auth.user_layouts (
@@ -69,9 +76,21 @@ CREATE TABLE IF NOT EXISTS auth.user_web_map_services (
 CREATE INDEX IF NOT EXISTS user_web_map_services_user_idx
   ON auth.user_web_map_services (user_id);
 
--- 初始化管理员账号（部署后请尽快修改默认密码）
-INSERT INTO auth.users (username, password_hash, is_admin)
-VALUES ('admin', crypt('ChangeMe_123', gen_salt('bf')), TRUE)
+-- 删除用户审计（硬删前写入，不被级联删除）
+CREATE TABLE IF NOT EXISTS auth.user_delete_audit (
+    id                 BIGSERIAL PRIMARY KEY,
+    target_user_id     BIGINT NOT NULL,
+    target_username    TEXT NOT NULL,
+    actor_user_id      BIGINT NOT NULL,
+    actor_username     TEXT NOT NULL,
+    tenant_schema      TEXT,
+    tenant_workspace   TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 初始化超级管理员账号（部署后请尽快修改默认密码）
+INSERT INTO auth.users (username, password_hash, is_admin, is_super_admin)
+VALUES ('admin', crypt('ChangeMe_123', gen_salt('bf')), TRUE, TRUE)
 ON CONFLICT (username) DO NOTHING;
 
 -- 示例点表（与 GeoServer init 中发布的图层名一致）

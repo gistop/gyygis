@@ -9,6 +9,7 @@ import {
   tenantWorkspaceName,
   userOssUploadPrefix
 } from "../services/tenant.js";
+import { SUPER_ADMIN_USERNAME } from "../constants/users.js";
 
 export const authRouter = Router();
 
@@ -31,6 +32,8 @@ type UserProfile = {
   tenantSchema: string;
   tenantWorkspace: string;
   uploadPrefix: string;
+  /** 超级管理员（用户名固定为 admin） */
+  isSuperAdmin: boolean;
 };
 
 type LoginResponse = { success: true; data: UserProfile & TokenPayload } | { success: false; error: string };
@@ -66,7 +69,12 @@ function validatePassword(password: string): string | null {
   return null;
 }
 
-function makeAccessJwt(userId: number, username: string, isAdmin: boolean): TokenPayload {
+function makeAccessJwt(
+  userId: number,
+  username: string,
+  isAdmin: boolean,
+  isSuperAdmin: boolean
+): TokenPayload {
   const accessTtlSec = 2 * 60 * 60; // 2h
   const now = Math.floor(Date.now() / 1000);
   const exp = now + accessTtlSec;
@@ -74,6 +82,7 @@ function makeAccessJwt(userId: number, username: string, isAdmin: boolean): Toke
     sub: String(userId),
     username,
     isAdmin,
+    isSuperAdmin,
     typ: "access",
     iat: now,
     exp
@@ -88,6 +97,7 @@ type RefreshSession = {
   userId: number;
   username: string;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   refreshExpiresAt: number;
 };
 
@@ -101,7 +111,12 @@ function saveRefreshToken(refreshToken: string, s: Omit<RefreshSession, "refresh
   });
 }
 
-function profileFromDb(userId: number, username: string, isAdmin: boolean): UserProfile {
+function profileFromDb(
+  userId: number,
+  username: string,
+  isAdmin: boolean,
+  isSuperAdmin: boolean
+): UserProfile {
   const roles = isAdmin ? ["admin"] : ["common"];
   const permissions = isAdmin ? ["*:*:*"] : [];
   return {
@@ -113,7 +128,8 @@ function profileFromDb(userId: number, username: string, isAdmin: boolean): User
     userId,
     tenantSchema: tenantSchemaName(userId),
     tenantWorkspace: tenantWorkspaceName(userId),
-    uploadPrefix: userOssUploadPrefix(userId)
+    uploadPrefix: userOssUploadPrefix(userId),
+    isSuperAdmin
   };
 }
 
@@ -125,7 +141,59 @@ async function ensureAuthColumns(): Promise<void> {
     ALTER TABLE auth.users
       ADD COLUMN IF NOT EXISTS tenant_schema text,
       ADD COLUMN IF NOT EXISTS tenant_workspace text,
-      ADD COLUMN IF NOT EXISTS geoserver_ready boolean NOT NULL DEFAULT FALSE
+      ADD COLUMN IF NOT EXISTS geoserver_ready boolean NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS is_super_admin boolean NOT NULL DEFAULT FALSE
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth.user_delete_audit (
+      id bigserial PRIMARY KEY,
+      target_user_id bigint NOT NULL,
+      target_username text NOT NULL,
+      actor_user_id bigint NOT NULL,
+      actor_username text NOT NULL,
+      tenant_schema text,
+      tenant_workspace text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
+    UPDATE auth.users SET is_super_admin = TRUE, is_admin = TRUE WHERE username = $1
+  `, [SUPER_ADMIN_USERNAME]);
+  await pool.query(`
+    UPDATE auth.users SET is_super_admin = FALSE WHERE username <> $1
+  `, [SUPER_ADMIN_USERNAME]);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS auth_users_one_super_admin
+    ON auth.users ((1))
+    WHERE is_super_admin
+  `);
+  await pool.query(`
+    DO $c$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c
+        JOIN pg_catalog.pg_class r ON r.oid = c.conrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = r.relnamespace
+        WHERE c.conname = 'users_super_only_admin' AND n.nspname = 'auth' AND r.relname = 'users'
+      ) THEN
+        ALTER TABLE auth.users ADD CONSTRAINT users_super_only_admin
+          CHECK (NOT is_super_admin OR username = '${SUPER_ADMIN_USERNAME}');
+      END IF;
+    END $c$
+  `);
+  await pool.query(`
+    DO $c$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c
+        JOIN pg_catalog.pg_class r ON r.oid = c.conrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = r.relnamespace
+        WHERE c.conname = 'users_admin_must_be_super' AND n.nspname = 'auth' AND r.relname = 'users'
+      ) THEN
+        ALTER TABLE auth.users ADD CONSTRAINT users_admin_must_be_super
+          CHECK (username <> '${SUPER_ADMIN_USERNAME}' OR is_super_admin = TRUE);
+      END IF;
+    END $c$
   `);
   ensuredAuthColumns = true;
 }
@@ -158,7 +226,7 @@ async function loginWithPassword(
   username: string,
   password: string
 ): Promise<
-  | { ok: true; userId: number; username: string; isAdmin: boolean }
+  | { ok: true; userId: number; username: string; isAdmin: boolean; isSuperAdmin: boolean }
   | { ok: false; error: string }
 > {
   const pool = getDbPool();
@@ -167,9 +235,10 @@ async function loginWithPassword(
     username: string;
     is_admin: boolean;
     is_active: boolean;
+    is_super_admin: boolean;
   }>(
     `
-    SELECT id, username, is_admin, is_active
+    SELECT id, username, is_admin, is_active, is_super_admin
     FROM auth.users
     WHERE username = $1
       AND is_active = TRUE
@@ -180,7 +249,13 @@ async function loginWithPassword(
   );
   const row = r.rows[0];
   if (!row) return { ok: false, error: "用户名或密码错误" };
-  return { ok: true, userId: Number(row.id), username: row.username, isAdmin: row.is_admin === true };
+  return {
+    ok: true,
+    userId: Number(row.id),
+    username: row.username,
+    isAdmin: row.is_admin === true,
+    isSuperAdmin: row.is_super_admin === true
+  };
 }
 
 async function ensureUserTenantIfMissing(userId: number): Promise<void> {
@@ -240,6 +315,10 @@ authRouter.post("/register", async (req, res) => {
     res.status(400).json({ success: false, error: uErr } satisfies RegisterResponse);
     return;
   }
+  if (username.trim().toLowerCase() === SUPER_ADMIN_USERNAME) {
+    res.status(400).json({ success: false, error: "该用户名为系统保留，不可注册" } satisfies RegisterResponse);
+    return;
+  }
   const pErr = validatePassword(password);
   if (pErr) {
     res.status(400).json({ success: false, error: pErr } satisfies RegisterResponse);
@@ -268,8 +347,8 @@ authRouter.post("/register", async (req, res) => {
       await client.query("BEGIN");
       const result = await client.query<{ id: string; username: string }>(
         `
-        INSERT INTO auth.users (username, password_hash, is_admin)
-        VALUES ($1, crypt($2, gen_salt('bf')), FALSE)
+        INSERT INTO auth.users (username, password_hash, is_admin, is_super_admin)
+        VALUES ($1, crypt($2, gen_salt('bf')), FALSE, FALSE)
         ON CONFLICT (username) DO NOTHING
         RETURNING id, username
         `,
@@ -361,18 +440,24 @@ authRouter.post("/login", async (req, res) => {
   }
 
   try {
+    await ensureAuthColumns();
     const r = await loginWithPassword(username.trim(), password);
     if (!r.ok) {
       res.status(401).json({ success: false, error: r.error } satisfies LoginResponse);
       return;
     }
     await ensureUserTenantIfMissing(r.userId);
-    const tokens = makeAccessJwt(r.userId, r.username, r.isAdmin);
-    saveRefreshToken(tokens.refreshToken, { userId: r.userId, username: r.username, isAdmin: r.isAdmin });
+    const tokens = makeAccessJwt(r.userId, r.username, r.isAdmin, r.isSuperAdmin);
+    saveRefreshToken(tokens.refreshToken, {
+      userId: r.userId,
+      username: r.username,
+      isAdmin: r.isAdmin,
+      isSuperAdmin: r.isSuperAdmin
+    });
     res.json({
       success: true,
       data: {
-        ...profileFromDb(r.userId, r.username, r.isAdmin),
+        ...profileFromDb(r.userId, r.username, r.isAdmin, r.isSuperAdmin),
         ...tokens
       }
     } satisfies LoginResponse);
@@ -399,8 +484,41 @@ authRouter.post("/refresh-token", async (req, res) => {
     res.status(401).json({ success: false, error: "refreshToken 已过期" } satisfies RefreshResponse);
     return;
   }
-  const tokens = makeAccessJwt(s.userId, s.username, s.isAdmin);
-  saveRefreshToken(tokens.refreshToken, { userId: s.userId, username: s.username, isAdmin: s.isAdmin });
+  let username = s.username;
+  let isAdmin = s.isAdmin;
+  let isSuperAdmin = s.isSuperAdmin;
+  if (isDbConfigured()) {
+    try {
+      await ensureAuthColumns();
+      const pool = getDbPool();
+      const r = await pool.query<{
+        username: string;
+        is_admin: boolean;
+        is_super_admin: boolean;
+      }>(
+        `SELECT username, is_admin, is_super_admin FROM auth.users WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+        [s.userId]
+      );
+      const row = r.rows[0];
+      if (!row) {
+        refreshSessions.delete(refreshToken);
+        res.status(401).json({ success: false, error: "用户不存在或已禁用" } satisfies RefreshResponse);
+        return;
+      }
+      username = row.username;
+      isAdmin = row.is_admin === true;
+      isSuperAdmin = row.is_super_admin === true;
+    } catch {
+      /* 数据库异常时沿用会话内角色 */
+    }
+  }
+  const tokens = makeAccessJwt(s.userId, username, isAdmin, isSuperAdmin);
+  saveRefreshToken(tokens.refreshToken, {
+    userId: s.userId,
+    username,
+    isAdmin,
+    isSuperAdmin
+  });
   res.json({
     success: true,
     data: {
