@@ -146,6 +146,7 @@
         <div class="panelEditForm__label">显示内容</div>
         <el-radio-group v-model="editPanelMode" class="panelEditRadios">
           <el-radio-button value="map">地图</el-radio-button>
+          <el-radio-button value="mapControls">地图控件</el-radio-button>
           <el-radio-button value="chart">统计图</el-radio-button>
           <el-radio-button value="table">表格</el-radio-button>
           <el-radio-button value="stats">统计值</el-radio-button>
@@ -305,6 +306,26 @@
           </el-radio-group>
           <p class="muted panelEditHint">数字模式为本地时间的 24 小时制（HH:mm:ss）；表盘为 12 小时指针式。</p>
         </template>
+        <template v-if="editPanelMode === 'mapControls'">
+          <div class="panelEditForm__label">控件类型</div>
+          <el-radio-group v-model="editMapControlKind" class="panelEditRadios">
+            <el-radio-button value="layers">图层列表</el-radio-button>
+            <el-radio-button value="overview">鹰眼（Overview Map）</el-radio-button>
+          </el-radio-group>
+          <div class="panelEditForm__label">关联地图面板</div>
+          <el-select
+            v-model="editLinkedMapPanelId"
+            filterable
+            clearable
+            placeholder="选择当前布局中的地图格"
+            style="width: 100%"
+          >
+            <el-option v-for="t in mapLinkTargetOptions" :key="t.id" :label="t.label" :value="t.id" />
+          </el-select>
+          <p class="muted panelEditHint">
+            下列为当前布局中类型为「地图」的面板；图层显隐与鹰眼均作用于该面板的 OpenLayers 地图实例。
+          </p>
+        </template>
         <div class="panelEditActions">
           <el-button
             type="primary"
@@ -356,10 +377,12 @@ import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
 import type { DockviewChartKind } from "@/charts/types";
 import { isDockviewChartKind } from "@/charts/types";
 import {
+  coerceMapControlKind,
   coercePanelImageObjectFit,
   coerceTimeDisplayMode,
   getEffectivePanelContent,
   mergePanelContentParams,
+  type MapControlKind,
   type PanelContentRadio,
   type PanelImageObjectFit,
   type TimeDisplayMode
@@ -642,6 +665,21 @@ const editTableFields = refSetup<string[]>([]);
 const editStatsLayerName = refSetup("");
 const editStatsFields = refSetup<string[]>([]);
 const editTimeDisplayMode = refSetup<TimeDisplayMode>("digital");
+const editMapControlKind = refSetup<MapControlKind>("layers");
+const editLinkedMapPanelId = refSetup("");
+const mapLinkTargets = refSetup<Array<{ id: string; title: string }>>([]);
+
+const mapLinkTargetOptions = computedSetup(() => {
+  const cur = editLinkedMapPanelId.value.trim();
+  const base = mapLinkTargets.value.map(t => ({
+    id: t.id,
+    label: t.title ? `${t.title}（${t.id}）` : t.id
+  }));
+  if (cur && !base.some(x => x.id === cur)) {
+    return [{ id: cur, label: `${cur}（当前保存值，可能未在布局中）` }, ...base];
+  }
+  return base;
+});
 
 const tableLayers = refSetup<MapLayerInfo[]>([]);
 const tableLayersLoading = refSetup(false);
@@ -676,10 +714,41 @@ const userPublishedLayers = refSetup<MapLayerInfo[]>([]);
 const editMapLayers = refSetup<EditMapLayerRow[]>([]);
 const dragFromIndex = refSetup<number | null>(null);
 
+function refreshMapLinkTargets(): void {
+  const api = dockviewApi.value;
+  const exclude = panelEditPanelId.value;
+  if (!api) {
+    mapLinkTargets.value = [];
+    return;
+  }
+  const rows: Array<{ id: string; title: string }> = [];
+  for (const p of api.panels) {
+    if (p.id === exclude) continue;
+    let params: Record<string, unknown> = {};
+    try {
+      params = p.api.getParameters() as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (getEffectivePanelContent(params, p.id) === "map") {
+      rows.push({ id: p.id, title: String(p.api.title ?? p.id) });
+    }
+  }
+  mapLinkTargets.value = rows;
+}
+
 function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknown>, panelId: string) {
   const p = getBusinessParams();
   const pc = p.panelContent;
-  if (pc === "map" || pc === "chart" || pc === "table" || pc === "stats" || pc === "image" || pc === "time") {
+  if (
+    pc === "map" ||
+    pc === "chart" ||
+    pc === "table" ||
+    pc === "stats" ||
+    pc === "image" ||
+    pc === "time" ||
+    pc === "mapControls"
+  ) {
     editPanelMode.value = pc;
   } else {
     const eff = getEffectivePanelContent(p, panelId);
@@ -701,6 +770,13 @@ function syncPanelEditFormFromApi(getBusinessParams: () => Record<string, unknow
     ? (p.statsFields as unknown[]).map(x => String(x)).filter(Boolean)
     : [];
   editTimeDisplayMode.value = coerceTimeDisplayMode(p.timeDisplayMode);
+  editMapControlKind.value = coerceMapControlKind(p.mapControlKind);
+  editLinkedMapPanelId.value = typeof p.linkedMapPanelId === "string" ? p.linkedMapPanelId.trim() : "";
+
+  if (editPanelMode.value === "mapControls") {
+    editMapLayers.value = [];
+    return;
+  }
 
   // mapLayers（新版）优先；否则兼容旧的 mapCatalogId/mapCatalogIds
   const rawLayers = Array.isArray(p.mapLayers) ? (p.mapLayers as unknown[]) : null;
@@ -775,7 +851,9 @@ function applyPanelContentFromDrawer() {
     tableFields: editTableFields.value,
     statsLayerName: editStatsLayerName.value,
     statsFields: editStatsFields.value,
-    timeDisplayMode: editTimeDisplayMode.value
+    timeDisplayMode: editTimeDisplayMode.value,
+    mapControlKind: editMapControlKind.value,
+    linkedMapPanelId: editLinkedMapPanelId.value
   });
 
   if (editPanelMode.value === "map") {
@@ -823,6 +901,7 @@ function openPanelEditDrawer(
   panelEditApi.value = panelApi;
   panelEditGetBusinessParams.value = getBusinessParams;
   syncPanelEditFormFromApi(getBusinessParams, panelId);
+  refreshMapLinkTargets();
   panelEditDrawerVisible.value = true;
 }
 
@@ -1014,6 +1093,7 @@ watchSetup(
   () => [panelEditDrawerVisible.value, editPanelMode.value] as const,
   ([visible, mode]) => {
     if (visible && (mode === "table" || mode === "stats")) void ensureTableLayersLoaded();
+    if (visible && mode === "mapControls") refreshMapLinkTargets();
   }
 );
 

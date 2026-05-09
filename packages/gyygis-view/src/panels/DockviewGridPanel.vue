@@ -5,6 +5,7 @@ import EchartsPanel from "@/panels/EchartsPanel.vue";
 import DockviewEmbedTablePanel from "@/panels/DockviewEmbedTablePanel.vue";
 import DockviewStatsPanel from "@/panels/DockviewStatsPanel.vue";
 import DockviewTimePanel from "@/panels/DockviewTimePanel.vue";
+import DockviewMapControlsPanel from "@/panels/DockviewMapControlsPanel.vue";
 import { isDockviewChartKind } from "@/charts/types";
 import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
 import {
@@ -114,6 +115,7 @@ export default defineComponent({
       if (effectiveContent.value === "image") parts.push("image");
       if (effectiveContent.value === "stats") parts.push("stats");
       if (effectiveContent.value === "time") parts.push(`time:${timeDisplayModeResolved.value}`);
+      if (effectiveContent.value === "mapControls") parts.push("mapControls");
       if (effectiveContent.value === "map" && readMapLayersParam()?.length) parts.push("layers");
       return parts.length ? ` · ${parts.join(" · ")}` : "";
     });
@@ -194,6 +196,7 @@ export default defineComponent({
         ]),
         effectiveContent.value === "map"
           ? h(TiandituMapPanel, {
+              panelId: panelId.value,
               mapLayers: readMapLayersParam(),
               mapCatalogId:
                 typeof innerParams.value.mapCatalogId === "number"
@@ -209,7 +212,9 @@ export default defineComponent({
                     .filter(n => Number.isFinite(n) && n > 0)
                 : null
             })
-          : effectiveContent.value === "chart"
+          : effectiveContent.value === "mapControls"
+            ? h(DockviewMapControlsPanel, { params: innerParams.value })
+            : effectiveContent.value === "chart"
             ? h(EchartsPanel, { chartKind: chartKindResolved.value ?? "bar" })
             : effectiveContent.value === "table"
               ? h(DockviewEmbedTablePanel, { params: innerParams.value })

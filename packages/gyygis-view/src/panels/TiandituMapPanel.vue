@@ -12,7 +12,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import Map from "ol/Map";
+import OlMap from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
 import type ImageTile from "ol/ImageTile";
@@ -23,6 +23,7 @@ import { useTiandituOlMap } from "@/composables/useTiandituOlMap";
 import { fetchBrowserTileConfig, fetchWebMapServices, type WebMapServiceRow } from "@/api/webMapServices";
 import { getUserIdFromAccessTokenJwt } from "@/utils/authorizedToken";
 import { prepareXyzUrlTemplateForOpenLayers } from "@/utils/xyzTileUrl";
+import { registerOlMapForPanel, unregisterOlMapForPanel } from "@/mapPanelRegistry";
 import "ol/ol.css";
 
 type PanelMapLayer =
@@ -52,6 +53,8 @@ const props = withDefaults(
     mapCatalogId?: number | null;
     /** 面板允许展示的服务列表（暂不用于渲染，仅用于未来扩展） */
     mapCatalogIds?: number[] | null;
+    /** Dockview 面板 id，用于地图控件面板关联同一 OpenLayers 实例 */
+    panelId?: string;
   }>(),
   {
     centerLon: 116.407526,
@@ -59,7 +62,8 @@ const props = withDefaults(
     zoom: 12,
     mapLayers: null,
     mapCatalogId: null,
-    mapCatalogIds: null
+    mapCatalogIds: null,
+    panelId: ""
   }
 );
 
@@ -70,16 +74,26 @@ const { errorMessage: tdtError, mount: mountTdt, dispose: disposeTdt } = useTian
   () => ({
     center: [props.centerLon, props.centerLat],
     zoom: props.zoom
-  })
+  }),
+  {
+    onMapInstance(m) {
+      const id = props.panelId?.trim();
+      if (!id) return;
+      if (m) registerOlMapForPanel(id, m);
+      else unregisterOlMapForPanel(id);
+    }
+  }
 );
 
 const customError = ref<string | null>(null);
-let mapInstance: Map | null = null;
+let mapInstance: OlMap | null = null;
 let ro: ResizeObserver | null = null;
 
 function disposeCustom() {
   ro?.disconnect();
   ro = null;
+  const id = props.panelId?.trim();
+  if (mapInstance && id) unregisterOlMapForPanel(id);
   mapInstance?.setTarget(undefined);
   mapInstance = null;
   customError.value = null;
@@ -147,7 +161,7 @@ async function mountCustom() {
   const workspace = userId != null ? `u_${userId}` : null;
 
   try {
-    const layers: Array<TileLayer<XYZ | TileWMS>> = [];
+    const layers: TileLayer[] = [];
 
     let svcById = new Map<number, WebMapServiceRow>();
     try {
@@ -159,7 +173,7 @@ async function mountCustom() {
         });
       }
     } catch {
-      svcById = new Map();
+      svcById = new Map<number, WebMapServiceRow>();
     }
 
     for (const s of layersSpec) {
@@ -174,9 +188,9 @@ async function mountCustom() {
             source: new XYZ({
               url: urlTemplate,
               crossOrigin: "anonymous",
-              tileLoadFunction: (tile: ImageTile, src: string) => {
+              tileLoadFunction: (tile, src) => {
                 console.log("[tianditu browser xyz]", src);
-                const image = tile.getImage() as HTMLImageElement;
+                const image = (tile as ImageTile).getImage() as HTMLImageElement;
                 if (image) {
                   image.crossOrigin = "anonymous";
                   image.src = src;
@@ -221,7 +235,7 @@ async function mountCustom() {
       layers.push(layer);
     }
 
-    mapInstance = new Map({
+    mapInstance = new OlMap({
       target: el,
       layers,
       view: new View({
@@ -229,6 +243,8 @@ async function mountCustom() {
         zoom: props.zoom
       })
     });
+    const pid = props.panelId?.trim();
+    if (pid) registerOlMapForPanel(pid, mapInstance);
 
     requestAnimationFrame(() => mapInstance?.updateSize());
     ro = new ResizeObserver(() => mapInstance?.updateSize());

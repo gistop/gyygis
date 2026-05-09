@@ -5,9 +5,28 @@ import { isDockviewChartKind } from "@/charts/types";
 export const DEFAULT_PANEL_IMAGE_URL =
   "https://picsum.photos/id/237/800/450";
 
-export type PanelContentRadio = "map" | "chart" | "table" | "stats" | "image" | "time" | "auto";
+/** 地图控件面板：图层列表 / 鹰眼（OverviewMap） */
+export type MapControlKind = "layers" | "overview";
 
-export type EffectivePanelContent = "map" | "chart" | "table" | "stats" | "image" | "time" | "none";
+export type PanelContentRadio =
+  | "map"
+  | "chart"
+  | "table"
+  | "stats"
+  | "image"
+  | "time"
+  | "mapControls"
+  | "auto";
+
+export type EffectivePanelContent =
+  | "map"
+  | "chart"
+  | "table"
+  | "stats"
+  | "image"
+  | "time"
+  | "mapControls"
+  | "none";
 
 /** 时间面板：24 小时数字时钟 / 表盘 */
 export type TimeDisplayMode = "digital" | "dial";
@@ -37,7 +56,15 @@ export function getEffectivePanelContent(
   panelId: string
 ): EffectivePanelContent {
   const pc = params.panelContent;
-  if (pc === "map" || pc === "chart" || pc === "table" || pc === "stats" || pc === "image" || pc === "time") {
+  if (
+    pc === "map" ||
+    pc === "chart" ||
+    pc === "table" ||
+    pc === "stats" ||
+    pc === "image" ||
+    pc === "time" ||
+    pc === "mapControls"
+  ) {
     return pc;
   }
   const kind = String(params.kind ?? "");
@@ -55,6 +82,10 @@ export function getEffectivePanelContent(
  * Dockview `updateParameters` 会整体替换 parameters，因此始终基于当前参数做浅拷贝再改。
  * `auto`：仅移除 `panelContent`，恢复为按 kind / chartKind / embedKind / panelId 推导。
  */
+export function coerceMapControlKind(raw: unknown): MapControlKind {
+  return String(raw ?? "").toLowerCase() === "overview" ? "overview" : "layers";
+}
+
 export function mergePanelContentParams(
   base: Record<string, unknown>,
   mode: PanelContentRadio,
@@ -67,11 +98,15 @@ export function mergePanelContentParams(
     statsLayerName?: string;
     statsFields?: string[];
     timeDisplayMode?: TimeDisplayMode;
+    mapControlKind?: MapControlKind;
+    linkedMapPanelId?: string;
   }
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   if (mode === "auto") {
     delete out.panelContent;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
     return out;
   }
   out.panelContent = mode;
@@ -86,6 +121,8 @@ export function mergePanelContentParams(
     delete out.statsLayerName;
     delete out.statsFields;
     delete out.timeDisplayMode;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
   } else if (mode === "chart") {
     delete out.kind;
     delete out.embedKind;
@@ -96,6 +133,8 @@ export function mergePanelContentParams(
     delete out.statsLayerName;
     delete out.statsFields;
     delete out.timeDisplayMode;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
     const ck = opts?.chartKind;
     out.chartKind = ck && isDockviewChartKind(ck) ? ck : "bar";
   } else if (mode === "table") {
@@ -106,6 +145,8 @@ export function mergePanelContentParams(
     delete out.timeDisplayMode;
     delete out.statsLayerName;
     delete out.statsFields;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
     out.embedKind = "table";
     const layerName = (opts?.tableLayerName ?? "").trim();
     if (layerName) out.tableLayerName = layerName;
@@ -123,6 +164,8 @@ export function mergePanelContentParams(
     delete out.tableLayerName;
     delete out.tableFields;
     delete out.timeDisplayMode;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
     out.embedKind = "stats";
     const statsLayer = (opts?.statsLayerName ?? "").trim();
     if (statsLayer) out.statsLayerName = statsLayer;
@@ -140,6 +183,8 @@ export function mergePanelContentParams(
     delete out.statsLayerName;
     delete out.statsFields;
     delete out.timeDisplayMode;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
     out.embedKind = "image";
     const url = (opts?.imageUrl ?? "").trim();
     out.imageUrl = url || DEFAULT_PANEL_IMAGE_URL;
@@ -153,8 +198,28 @@ export function mergePanelContentParams(
     delete out.tableFields;
     delete out.statsLayerName;
     delete out.statsFields;
+    delete out.mapControlKind;
+    delete out.linkedMapPanelId;
     out.embedKind = "time";
     out.timeDisplayMode = coerceTimeDisplayMode(opts?.timeDisplayMode ?? out.timeDisplayMode);
+  } else if (mode === "mapControls") {
+    delete out.kind;
+    delete out.chartKind;
+    delete out.imageUrl;
+    delete out.imageObjectFit;
+    delete out.tableLayerName;
+    delete out.tableFields;
+    delete out.statsLayerName;
+    delete out.statsFields;
+    delete out.timeDisplayMode;
+    delete out.mapLayers;
+    delete out.mapCatalogIds;
+    delete out.mapCatalogId;
+    out.embedKind = "mapControls";
+    out.mapControlKind = coerceMapControlKind(opts?.mapControlKind ?? base.mapControlKind);
+    const lid = (opts?.linkedMapPanelId ?? "").trim();
+    if (lid) out.linkedMapPanelId = lid;
+    else delete out.linkedMapPanelId;
   }
   return out;
 }

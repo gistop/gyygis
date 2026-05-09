@@ -1,4 +1,5 @@
 import { nextTick, onBeforeUnmount, ref, type Ref } from "vue";
+import type OlMap from "ol/Map";
 import Map from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
@@ -14,14 +15,26 @@ export type TiandituOlMapOptions = {
  * 在指定 DOM 上创建天地图影像 + 注记图层，并在容器尺寸变化时 updateSize。
  * 调用方需在组件卸载时调用 dispose()（composable 内部也会 onBeforeUnmount 自动 dispose）。
  */
-export function useTiandituOlMap(mapEl: Ref<HTMLDivElement | null>, getOptions: () => TiandituOlMapOptions) {
+export type TiandituOlMapHooks = {
+  /** 天地图实例创建或销毁时回调（用于跨面板注册 OpenLayers Map） */
+  onMapInstance?: (map: OlMap | null) => void;
+};
+
+export function useTiandituOlMap(
+  mapEl: Ref<HTMLDivElement | null>,
+  getOptions: () => TiandituOlMapOptions,
+  hooks?: TiandituOlMapHooks
+) {
   const errorMessage = ref<string | null>(null);
-  let mapInstance: Map | null = null;
+  let mapInstance: OlMap | null = null;
   let ro: ResizeObserver | null = null;
 
   function dispose() {
     ro?.disconnect();
     ro = null;
+    if (mapInstance) {
+      hooks?.onMapInstance?.(null);
+    }
     mapInstance?.setTarget(undefined);
     mapInstance = null;
   }
@@ -53,6 +66,7 @@ export function useTiandituOlMap(mapEl: Ref<HTMLDivElement | null>, getOptions: 
           zoom
         })
       });
+      hooks?.onMapInstance?.(mapInstance);
 
       await nextTick();
       requestAnimationFrame(() => {
