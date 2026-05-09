@@ -1,15 +1,32 @@
 import axios from "axios";
 import type pg from "pg";
 
-export function tenantSchemaName(userId: number): string {
-  if (!Number.isFinite(userId) || userId <= 0) {
+/** node-pg 对 BIGINT 等可能返回 string / bigint，统一为安全范围内的正整数 */
+function normalizePositiveIntUserId(userId: number | string | bigint): number {
+  let n: number;
+  if (typeof userId === "bigint") {
+    if (userId <= 0n || userId > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("非法 userId");
+    }
+    n = Number(userId);
+  } else if (typeof userId === "string") {
+    n = Number(userId.trim());
+  } else {
+    n = userId;
+  }
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
     throw new Error("非法 userId");
   }
-  return `u_${userId}`;
+  return n;
+}
+
+export function tenantSchemaName(userId: number | string | bigint): string {
+  const n = normalizePositiveIntUserId(userId);
+  return `u_${n}`;
 }
 
 /** GeoServer workspace 名：与 schema 对齐，便于排查 */
-export function tenantWorkspaceName(userId: number): string {
+export function tenantWorkspaceName(userId: number | string | bigint): string {
   return tenantSchemaName(userId);
 }
 
@@ -18,9 +35,10 @@ export function tenantDatastoreName(): string {
   return "postgis_store";
 }
 
-export function userOssUploadPrefix(userId: number): string {
+export function userOssUploadPrefix(userId: number | string | bigint): string {
+  const n = normalizePositiveIntUserId(userId);
   const base = (process.env.ALIYUN_OSS_UPLOAD_PREFIX ?? "uploads/").replace(/\/?$/, "/");
-  return `${base}u_${userId}/`;
+  return `${base}u_${n}/`;
 }
 
 function escapeXml(text: string): string {

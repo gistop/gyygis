@@ -16,10 +16,85 @@ import {
   type PublishGeojsonBody,
   type PublishXlsxBody
 } from "../services/mapPublishFromOss.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, type AuthedUser } from "../middleware/auth.js";
 import { tenantSchemaName, tenantWorkspaceName, userOssUploadPrefix } from "../services/tenant.js";
 
 export const mapsRouter = Router();
+
+type MapLayerListRow = {
+  name: string;
+  enabled: boolean;
+  workspace: string;
+  ownerUserId: number;
+};
+
+/** 校验 u_<id> 对应活跃用户存在 */
+async function assertWorkspaceBelongsToActiveUser(workspace: string): Promise<number> {
+  const m = /^u_([1-9][0-9]*)$/.exec(workspace);
+  if (!m) throw new Error("非法 workspace");
+  const ownerUserId = Number(m[1]);
+  if (!isDbConfigured()) throw new Error("数据库未配置");
+  const pool = getDbPool();
+  const r = await pool.query<{ id: number }>(
+    `SELECT id FROM auth.users WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+    [ownerUserId]
+  );
+  if (r.rowCount === 0) throw new Error("workspace 对应用户不存在或已停用");
+  if (tenantWorkspaceName(ownerUserId) !== workspace) throw new Error("非法 workspace");
+  return ownerUserId;
+}
+
+/**
+ * 解析 GeoServer 图层操作的目标 workspace/schema。
+ * - 普通用户：仅允许操作本人 workspace；若带 workspace 查询参数则必须与本人一致。
+ * - 超级管理员：必须带 workspace，且须为已存在活跃用户之 u_<id>。
+ */
+async function resolveTargetWorkspaceForPostgisLayer(
+  user: AuthedUser,
+  workspaceQuery: unknown
+): Promise<{ workspace: string; schema: string }> {
+  const ownWs = tenantWorkspaceName(user.userId);
+  if (user.isSuperAdmin) {
+    const ws = typeof workspaceQuery === "string" ? workspaceQuery.trim() : "";
+    if (!ws) {
+      throw new Error("超级管理员操作需指定 query 参数 workspace（如 u_12）");
+    }
+    const ownerUserId = await assertWorkspaceBelongsToActiveUser(ws);
+    return { workspace: ws, schema: tenantSchemaName(ownerUserId) };
+  }
+  const q = typeof workspaceQuery === "string" ? workspaceQuery.trim() : "";
+  if (q && q !== ownWs) {
+    throw new Error("无权操作其他用户的图层");
+  }
+  return { workspace: ownWs, schema: tenantSchemaName(user.userId) };
+}
+
+async function listAllTenantsPostgisLayers(): Promise<MapLayerListRow[]> {
+  if (!isDbConfigured()) throw new Error("数据库未配置");
+  const pool = getDbPool();
+  const users = await pool.query<{ id: number }>(
+    `SELECT id FROM auth.users WHERE is_active = TRUE ORDER BY id ASC`
+  );
+  const merged: MapLayerListRow[] = [];
+  for (const row of users.rows) {
+    const ws = tenantWorkspaceName(row.id);
+    const ownerUserId = Number.parseInt(ws.slice(2), 10);
+    try {
+      const layers = await listPostgisStoreLayers(ws);
+      for (const l of layers) {
+        merged.push({ ...l, workspace: ws, ownerUserId });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[maps/layers] skip workspace ${ws}: ${msg}`);
+    }
+  }
+  merged.sort((a, b) => {
+    if (a.workspace !== b.workspace) return a.workspace.localeCompare(b.workspace);
+    return a.name.localeCompare(b.name);
+  });
+  return merged;
+}
 
 function assertSafeIdentifier(name: string, what: string): void {
   if (!name || name.length > 63) throw new Error(`非法${what}`);
@@ -35,16 +110,24 @@ function coercePageInt(value: unknown, fallback: number, min: number, max: numbe
   return Math.max(min, Math.min(max, i));
 }
 
-/** GET /api/maps/layers — postgis_store 中已发布的图层及启用状态 */
+/** GET /api/maps/layers — postgis_store 中已发布的图层及启用状态（超管为全站租户） */
 mapsRouter.get("/layers", requireAuth, async (req, res) => {
   if (!isGeoMapsConfigured()) {
     res.status(503).json({ error: "地图服务未配置" });
     return;
   }
   try {
+    if (req.user!.isSuperAdmin) {
+      const layers = await listAllTenantsPostgisLayers();
+      res.json({ layers });
+      return;
+    }
     const ws = tenantWorkspaceName(req.user!.userId);
     const layers = await listPostgisStoreLayers(ws);
-    res.json({ layers });
+    const uid = req.user!.userId;
+    res.json({
+      layers: layers.map(l => ({ ...l, workspace: ws, ownerUserId: uid }))
+    });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[maps/layers]", e);
@@ -329,7 +412,7 @@ mapsRouter.get("/layers/:layerName/rows", requireAuth, async (req, res) => {
   }
 });
 
-/** PATCH /api/maps/layers/:layerName body: { enabled: boolean } */
+/** PATCH /api/maps/layers/:layerName body: { enabled: boolean }；超级管理员须带 ?workspace=u_<id> */
 mapsRouter.patch("/layers/:layerName", requireAuth, async (req, res) => {
   if (!isGeoMapsConfigured()) {
     res.status(503).json({ error: "地图服务未配置" });
@@ -342,8 +425,8 @@ mapsRouter.patch("/layers/:layerName", requireAuth, async (req, res) => {
     return;
   }
   try {
-    const ws = tenantWorkspaceName(req.user!.userId);
-    await setLayerEnabled(ws, decodeURIComponent(layerName), enabled);
+    const { workspace } = await resolveTargetWorkspaceForPostgisLayer(req.user!, req.query.workspace);
+    await setLayerEnabled(workspace, decodeURIComponent(layerName), enabled);
     res.status(204).send();
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
@@ -352,16 +435,18 @@ mapsRouter.patch("/layers/:layerName", requireAuth, async (req, res) => {
   }
 });
 
-/** DELETE /api/maps/layers/:layerName — 删除 GeoServer 图层并 DROP 同名 PostGIS 表 */
+/** DELETE /api/maps/layers/:layerName — 删除 GeoServer 图层并 DROP 同名 PostGIS 表；超级管理员须带 ?workspace=u_<id> */
 mapsRouter.delete("/layers/:layerName", requireAuth, async (req, res) => {
   if (!isGeoMapsConfigured()) {
     res.status(503).json({ error: "地图服务未配置" });
     return;
   }
   try {
-    const schema = tenantSchemaName(req.user!.userId);
-    const ws = tenantWorkspaceName(req.user!.userId);
-    await deleteLayerAndTable(schema, ws, decodeURIComponent(req.params.layerName));
+    const { workspace, schema } = await resolveTargetWorkspaceForPostgisLayer(
+      req.user!,
+      req.query.workspace
+    );
+    await deleteLayerAndTable(schema, workspace, decodeURIComponent(req.params.layerName));
     res.status(204).send();
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);

@@ -22,6 +22,7 @@ import {
   type WebMapServiceRow
 } from "@/api/webMapServices";
 import { useUserStoreHook } from "@/store/modules/user";
+import { getToken } from "@/utils/auth";
 
 function webMapUrlNeedsKey(url: string): boolean {
   return url.includes("{tk}") || url.includes("{key}");
@@ -37,6 +38,7 @@ defineOptions({ name: "DataIndex" });
 
 const userStore = useUserStoreHook();
 const isAdmin = computed(() => (userStore.roles ?? []).includes("admin"));
+const isSuperAdmin = computed(() => Boolean(getToken()?.isSuperAdmin));
 
 const publishObjectKey = ref("");
 const tableBase = ref("");
@@ -48,7 +50,12 @@ const publishing = ref(false);
 
 const mapLayers = ref<MapLayerInfo[]>([]);
 const layersLoading = ref(false);
+/** 正在操作的图层键：workspace:layerName，避免跨用户同名冲突 */
 const layerAction = ref<string | null>(null);
+
+function layerRowKey(row: MapLayerInfo): string {
+  return `${row.workspace}:${row.name}`;
+}
 
 const activeTab = ref("upload");
 
@@ -312,9 +319,9 @@ function coerceSwitchValue(v: boolean | string | number): boolean {
 }
 
 async function onLayerEnabledChange(row: MapLayerInfo, enabled: boolean) {
-  layerAction.value = row.name;
+  layerAction.value = layerRowKey(row);
   try {
-    await setMapLayerEnabled(row.name, enabled);
+    await setMapLayerEnabled(row.name, enabled, row.workspace);
     row.enabled = enabled;
     ElMessage.success(enabled ? "已启用" : "已停用");
   } catch (e: unknown) {
@@ -331,16 +338,16 @@ async function onLayerEnabledChange(row: MapLayerInfo, enabled: boolean) {
 async function onDeleteLayer(row: MapLayerInfo) {
   try {
     await ElMessageBox.confirm(
-      `将删除 GeoServer 图层「${row.name}」并删除 PostGIS 中同名表（不可恢复）。是否继续？`,
+      `将删除 workspace「${row.workspace}」下的 GeoServer 图层「${row.name}」并删除 PostGIS 中同名表（不可恢复）。是否继续？`,
       "删除地图服务",
       { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
     );
   } catch {
     return;
   }
-  layerAction.value = row.name;
+  layerAction.value = layerRowKey(row);
   try {
-    await deleteMapLayer(row.name);
+    await deleteMapLayer(row.name, row.workspace);
     ElMessage.success("已删除");
     await loadMapLayers();
   } catch (e: unknown) {
@@ -537,18 +544,26 @@ async function handlePublishMap() {
       <el-tab-pane label="地图服务管理" name="layers" lazy>
         <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p class="text-secondary text-sm">
-            列出当前用户在 GeoServer <code>postgis_store</code> 中已发布图层；停用后不再对外提供 WMS/WFS；删除会同时移除图层并
-            <strong>DROP</strong> 当前用户 schema 下同名表（请谨慎）。
+            <template v-if="isSuperAdmin">
+              超级管理员视图：列出<strong>所有活跃用户</strong>在各自 GeoServer workspace（<code>postgis_store</code>）中已发布的图层；停用或删除作用于<strong>该行所属用户</strong>的资源（删除会
+              <strong>DROP</strong> 对应 schema 下同名表，请谨慎）。
+            </template>
+            <template v-else>
+              列出当前用户在 GeoServer <code>postgis_store</code> 中已发布图层；停用后不再对外提供 WMS/WFS；删除会同时移除图层并
+              <strong>DROP</strong> 当前用户 schema 下同名表（请谨慎）。
+            </template>
           </p>
           <el-button :loading="layersLoading" @click="loadMapLayers">刷新列表</el-button>
         </div>
         <el-table v-loading="layersLoading" :data="mapLayers" border stripe empty-text="暂无图层或尚未加载">
+          <el-table-column v-if="isSuperAdmin" prop="ownerUserId" label="用户 ID" width="100" align="center" />
+          <el-table-column v-if="isSuperAdmin" prop="workspace" label="Workspace" min-width="120" />
           <el-table-column prop="name" label="图层名" min-width="160" />
           <el-table-column label="启用" width="120" align="center">
             <template #default="{ row }">
               <el-switch
                 :model-value="row.enabled"
-                :disabled="layerAction === row.name"
+                :disabled="layerAction === layerRowKey(row)"
                 @change="(v: boolean | string | number) => onLayerEnabledChange(row, coerceSwitchValue(v))"
               />
             </template>
@@ -558,7 +573,7 @@ async function handlePublishMap() {
               <el-button
                 type="danger"
                 link
-                :disabled="layerAction === row.name"
+                :disabled="layerAction === layerRowKey(row)"
                 @click="onDeleteLayer(row)"
               >
                 删除

@@ -3,6 +3,9 @@ import { getAccessTokenFromAuthorizedCookie } from "@/utils/authorizedToken";
 export type MapLayerInfo = {
   name: string;
   enabled: boolean;
+  /** 与 gyygis-server GET /api/maps/layers 一致；用户端仅本人 workspace */
+  workspace?: string;
+  ownerUserId?: number;
 };
 
 export type MapLayerField = {

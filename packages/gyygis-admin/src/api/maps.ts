@@ -55,25 +55,32 @@ export function publishGeojsonFromOss(body: PublishGeojsonFromOssRequest) {
 export type MapLayerInfo = {
   name: string;
   enabled: boolean;
+  /** GeoServer workspace，与 PostGIS schema 一致（u_<用户ID>） */
+  workspace: string;
+  /** 图层所属用户 ID */
+  ownerUserId: number;
 };
 
 export type MapLayersListResponse = {
   layers: MapLayerInfo[];
 };
 
-/** 列出 geoworkspace / postgis_store 中已发布图层 */
+/** 列出 geoworkspace / postgis_store 中已发布图层（超级管理员为全站） */
 export function fetchMapLayers() {
   return http.request<MapLayersListResponse>("get", "/api/maps/layers");
 }
 
-/** 启用 / 停用图层（不删表） */
-export function setMapLayerEnabled(layerName: string, enabled: boolean) {
+/** 启用 / 停用图层（不删表）；超级管理员须传 workspace */
+export function setMapLayerEnabled(layerName: string, enabled: boolean, workspace: string) {
   return http.request<void>("patch", `/api/maps/layers/${encodeURIComponent(layerName)}`, {
-    data: { enabled }
+    data: { enabled },
+    params: { workspace }
   });
 }
 
-/** 删除 GeoServer 图层并 DROP 同名 PostGIS 表 */
-export function deleteMapLayer(layerName: string) {
-  return http.request<void>("delete", `/api/maps/layers/${encodeURIComponent(layerName)}`);
+/** 删除 GeoServer 图层并 DROP 同名 PostGIS 表；超级管理员须传 workspace */
+export function deleteMapLayer(layerName: string, workspace: string) {
+  return http.request<void>("delete", `/api/maps/layers/${encodeURIComponent(layerName)}`, {
+    params: { workspace }
+  });
 }
