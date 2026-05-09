@@ -213,7 +213,9 @@ export default defineComponent({
                 : null
             })
           : effectiveContent.value === "mapControls"
-            ? h(DockviewMapControlsPanel, { params: innerParams.value })
+            ? h("div", { class: "gridPanel__mapWrap" }, [
+                h(DockviewMapControlsPanel, { params: innerParams.value })
+              ])
             : effectiveContent.value === "chart"
             ? h(EchartsPanel, { chartKind: chartKindResolved.value ?? "bar" })
             : effectiveContent.value === "table"

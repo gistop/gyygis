@@ -1,6 +1,7 @@
 <template>
   <div
     class="mapControlsPanel"
+    :class="{ 'mapControlsPanel--overviewFill': isOverviewFillLayout }"
     @pointerdown.stop="onBlockDockDrag"
     @mousedown.stop="onBlockDockDrag"
     @touchstart.stop="onBlockDockDrag"
@@ -54,10 +55,15 @@ const linkedId = computed(() => {
 const controlKind = computed<MapControlKind>(() => coerceMapControlKind(props.params.mapControlKind));
 
 const linkedMap = shallowRef<OlMap | null>(null);
+
+const isOverviewFillLayout = computed(
+  () => Boolean(linkedId.value && linkedMap.value && controlKind.value === "overview")
+);
 const overviewHostEl = ref<HTMLDivElement | null>(null);
 let overviewControl: OverviewMap | null = null;
 /** 当前挂载 Overview 控件的地图（用于卸载时 removeControl） */
 let overviewOwnerMap: OlMap | null = null;
+let overviewResizeRo: ResizeObserver | null = null;
 let layerListenKeys: EventsKey[] = [];
 
 type LayerRow = { uid: string; label: string; visible: boolean; layer: BaseLayer };
@@ -117,6 +123,8 @@ function setupLayerListeners(map: OlMap): void {
 }
 
 function teardownOverview(): void {
+  overviewResizeRo?.disconnect();
+  overviewResizeRo = null;
   if (overviewControl && overviewOwnerMap) {
     overviewOwnerMap.removeControl(overviewControl);
   }
@@ -144,14 +152,24 @@ async function setupOverview(map: OlMap): Promise<void> {
     target,
     layers: buildOverviewLayers(),
     collapsible: false,
-    collapsed: false
+    collapsed: false,
+    className: "gyygis-overviewmap--panel"
   });
   map.addControl(ctrl);
   overviewControl = ctrl;
   overviewOwnerMap = map;
+
+  const bumpOverviewSize = () => {
+    ctrl.getOverviewMap()?.updateSize();
+  };
+  overviewResizeRo = new ResizeObserver(() => {
+    requestAnimationFrame(bumpOverviewSize);
+  });
+  overviewResizeRo.observe(target);
+
   requestAnimationFrame(() => {
     map.updateSize();
-    ctrl.getOverviewMap()?.updateSize();
+    bumpOverviewSize();
   });
 }
 
@@ -206,9 +224,17 @@ onBeforeUnmount(() => {
 .mapControlsPanel {
   box-sizing: border-box;
   height: 100%;
+  width: 100%;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 8px 10px;
   overflow: auto;
+}
+
+.mapControlsPanel--overviewFill {
+  padding: 0;
+  overflow: hidden;
 }
 
 .mapControlsPanel__hint {
@@ -221,6 +247,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .mapControlsPanel__layerRow {
@@ -228,15 +257,51 @@ onBeforeUnmount(() => {
 }
 
 .mapControlsPanel__overviewHost {
-  min-height: 220px;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  border: 1px solid rgba(120, 180, 255, 0.25);
-  border-radius: 6px;
+  height: 100%;
+  border: none;
+  border-radius: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.mapControlsPanel__overviewHost :deep(.ol-overviewmap-map) {
-  border-radius: 4px;
+.mapControlsPanel--overviewFill .mapControlsPanel__overviewHost {
+  border-radius: var(--gyygis-panel-content-border-radius, 10px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* OpenLayers OverviewMap：铺满 target，随容器变化 */
+.mapControlsPanel__overviewHost :deep(.gyygis-overviewmap--panel) {
+  position: relative;
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.mapControlsPanel__overviewHost :deep(.gyygis-overviewmap--panel .ol-overviewmap-map) {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+.mapControlsPanel__overviewHost :deep(.gyygis-overviewmap--panel .ol-overviewmap-map .ol-viewport),
+.mapControlsPanel__overviewHost :deep(.gyygis-overviewmap--panel .ol-overviewmap-map canvas) {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* collapsible:false 时仍可能占位，收掉折叠按钮区域 */
+.mapControlsPanel__overviewHost :deep(.gyygis-overviewmap--panel button) {
+  display: none;
 }
 </style>
