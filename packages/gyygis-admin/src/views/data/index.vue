@@ -123,7 +123,7 @@ async function loadWebMapServices() {
 }
 
 async function onWebMapCatalogEnabledChange(row: WebMapServiceRow, enabled: boolean) {
-  if (!isAdmin.value) return;
+  if (!isSuperAdmin.value) return;
   webMapCatalogAction.value = row.catalogId;
   try {
     await patchWebMapCatalog(row.catalogId, { isEnabled: enabled });
@@ -183,6 +183,7 @@ async function saveUserWebMapKey(row: WebMapServiceRow) {
 }
 
 async function onDeleteWebMapCatalog(row: WebMapServiceRow) {
+  if (!isSuperAdmin.value) return;
   try {
     await ElMessageBox.confirm(
       `将删除第三方地图服务「${row.name}」并移除所有用户的个人配置。是否继续？`,
@@ -208,6 +209,7 @@ async function onDeleteWebMapCatalog(row: WebMapServiceRow) {
 }
 
 async function submitWebMapCatalog() {
+  if (!isSuperAdmin.value) return;
   if (!wmForm.name.trim()) {
     ElMessage.warning("请填写名称");
     return;
@@ -248,6 +250,7 @@ async function submitWebMapCatalog() {
 }
 
 function openWmEdit(row: WebMapServiceRow) {
+  if (!isSuperAdmin.value) return;
   wmEditCatalogId.value = row.catalogId;
   wmEditForm.name = row.name;
   wmEditForm.serviceUrl = row.serviceUrl;
@@ -261,6 +264,7 @@ function openWmEdit(row: WebMapServiceRow) {
 }
 
 async function submitWmEdit() {
+  if (!isSuperAdmin.value) return;
   const id = wmEditCatalogId.value;
   if (id == null) return;
   if (!wmEditForm.name.trim() || !wmEditForm.serviceUrl.trim()) {
@@ -585,13 +589,13 @@ async function handlePublishMap() {
 
       <el-tab-pane label="第三方地图服务" name="webMaps" lazy>
         <p class="mb-3 text-secondary text-sm">
-          全站目录由管理员维护服务地址；若 URL 含 <code>{tk}</code> 或 <code>{key}</code>，可配置管理员代填密钥便于体验，用户填写自己的
+          全站目录由超级管理员（<code>admin</code>）维护服务地址；若 URL 含 <code>{tk}</code> 或 <code>{key}</code>，可配置管理员代填密钥便于体验，用户填写自己的
           key 时优先使用用户 key。瓦片模式为「服务端代理」时密钥由后端代请求上游；「浏览器直连」时有效 key 会下发到浏览器（仅适用于浏览器端
           Key）。环境变量 <code>WEB_MAP_TILES_REQUIRE_USER_KEY=true</code> 时强制仅允许用户自备 key。
         </p>
 
-        <div v-if="isAdmin" class="mb-6 rounded border border-[var(--el-border-color)] p-4">
-          <h2 class="mb-3 text-base font-medium">添加地图服务（仅管理员）</h2>
+        <div v-if="isSuperAdmin" class="mb-6 rounded border border-[var(--el-border-color)] p-4">
+          <h2 class="mb-3 text-base font-medium">添加地图服务（仅超级管理员 admin）</h2>
           <el-form label-width="100px" class="max-w-3xl" @submit.prevent>
             <el-form-item label="名称" required>
               <el-input v-model="wmForm.name" placeholder="展示名称" clearable />
@@ -662,7 +666,7 @@ async function handlePublishMap() {
               {{ row.tileKeyMode === "browser" ? "浏览器" : "代理" }}
             </template>
           </el-table-column>
-          <el-table-column v-if="isAdmin" label="全站启用" width="110" align="center">
+          <el-table-column v-if="isSuperAdmin" label="全站启用" width="110" align="center">
             <template #default="{ row }">
               <el-switch
                 :model-value="row.catalogEnabled"
@@ -724,7 +728,7 @@ async function handlePublishMap() {
               />
             </template>
           </el-table-column>
-          <el-table-column v-if="isAdmin" label="操作" width="160" align="center" fixed="right">
+          <el-table-column v-if="isSuperAdmin" label="操作" width="160" align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openWmEdit(row)">编辑</el-button>
               <el-button

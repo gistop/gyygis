@@ -7,9 +7,9 @@ import { config } from "../config/index.js";
 export const webMapServicesRouter = Router();
 webMapServicesRouter.use(requireAuth);
 
-function requireAdmin(req: Request, res: Response): boolean {
-  if (!req.user?.isAdmin) {
-    res.status(403).json({ error: "需要管理员权限" });
+function requireSuperAdmin(req: Request, res: Response): boolean {
+  if (!req.user?.isSuperAdmin) {
+    res.status(403).json({ error: "需要超级管理员权限" });
     return false;
   }
   return true;
@@ -117,13 +117,13 @@ webMapServicesRouter.get("/", async (req, res) => {
   }
 });
 
-/** POST /api/web-map-services/catalog 管理员新增目录项 */
+/** POST /api/web-map-services/catalog 超级管理员新增目录项 */
 webMapServicesRouter.post("/catalog", async (req, res) => {
   if (!isDbConfigured()) {
     res.status(503).json({ error: "数据库未配置" });
     return;
   }
-  if (!requireAdmin(req, res)) return;
+  if (!requireSuperAdmin(req, res)) return;
 
   const body = req.body ?? {};
   const name = String(body.name ?? "").trim();
@@ -205,13 +205,13 @@ webMapServicesRouter.post("/catalog", async (req, res) => {
   }
 });
 
-/** PATCH /api/web-map-services/catalog/:id 管理员更新目录 */
+/** PATCH /api/web-map-services/catalog/:id 超级管理员更新目录 */
 webMapServicesRouter.patch("/catalog/:id", async (req, res) => {
   if (!isDbConfigured()) {
     res.status(503).json({ error: "数据库未配置" });
     return;
   }
-  if (!requireAdmin(req, res)) return;
+  if (!requireSuperAdmin(req, res)) return;
 
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) {
@@ -339,13 +339,13 @@ webMapServicesRouter.patch("/catalog/:id", async (req, res) => {
   }
 });
 
-/** DELETE /api/web-map-services/catalog/:id 管理员删除 */
+/** DELETE /api/web-map-services/catalog/:id 超级管理员删除 */
 webMapServicesRouter.delete("/catalog/:id", async (req, res) => {
   if (!isDbConfigured()) {
     res.status(503).json({ error: "数据库未配置" });
     return;
   }
-  if (!requireAdmin(req, res)) return;
+  if (!requireSuperAdmin(req, res)) return;
 
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) {
