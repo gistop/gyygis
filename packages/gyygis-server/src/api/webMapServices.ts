@@ -21,6 +21,16 @@ function templateNeedsKey(template: string): boolean {
   return template.includes("{tk}") || template.includes("{key}");
 }
 
+/**
+ * 个人启用：库里有行则以 is_enabled 为准；无行时，不含 {tk}/{key} 的地址视为默认启用（如 ArcGIS 影像），
+ * 含占位符的默认停用，直至用户显式开启并具备有效密钥。
+ */
+function effectiveUserPersonalEnabled(serviceUrl: string, dbIsEnabled: boolean | null): boolean {
+  if (dbIsEnabled === true) return true;
+  if (dbIsEnabled === false) return false;
+  return !templateNeedsKey(serviceUrl);
+}
+
 function effectiveTileKey(
   userKey: string | null | undefined,
   adminKey: string | null | undefined,
@@ -106,7 +116,7 @@ webMapServicesRouter.get("/", async (req, res) => {
         sortOrder: Number(r.sort_order),
         hasAdminKey: (r.admin_key_len ?? 0) > 0,
         hasUserKey: (r.user_key_len ?? 0) > 0,
-        userEnabled: r.user_is_enabled === true,
+        userEnabled: effectiveUserPersonalEnabled(r.service_url, r.user_is_enabled),
         tileKeyMode: r.tile_key_mode === "browser" ? "browser" : "proxy"
       }))
     });
@@ -414,15 +424,16 @@ webMapServicesRouter.get("/me/:catalogId/browser-tiles", async (req, res) => {
       [req.user!.userId, catalogId]
     );
     const userRow = u.rows[0];
-    if (!userRow || userRow.is_enabled !== true) {
+    const serviceUrl = String(cat.rows[0].service_url);
+    const dbPersonal = userRow ? userRow.is_enabled : null;
+    if (!effectiveUserPersonalEnabled(serviceUrl, dbPersonal)) {
       res.status(403).json({ error: "该服务对当前用户不可用" });
       return;
     }
 
-    const userKey = userRow.user_api_key;
+    const userKey = userRow?.user_api_key ?? null;
     const adminKey = cat.rows[0].admin_api_key;
     const requiresUserKey = cat.rows[0].requires_user_key;
-    const serviceUrl = String(cat.rows[0].service_url);
     const apiKey = effectiveTileKey(userKey, adminKey, requiresUserKey);
     if (templateNeedsKey(serviceUrl) && !apiKey) {
       res.status(403).json({ error: "未配置有效密钥" });
@@ -646,13 +657,14 @@ webMapServicesRouter.get(
         [req.user!.userId, catalogId]
       );
       const userRow = u.rows[0];
-      if (!userRow || userRow.is_enabled !== true) {
+      const serviceUrl = String(cat.rows[0].service_url);
+      const dbPersonal = userRow ? userRow.is_enabled : null;
+      if (!effectiveUserPersonalEnabled(serviceUrl, dbPersonal)) {
         res.status(403).send("该服务对当前用户不可用");
         return;
       }
-      const serviceUrl = String(cat.rows[0].service_url);
       const key = effectiveTileKey(
-        userRow.user_api_key,
+        userRow?.user_api_key ?? null,
         cat.rows[0].admin_api_key,
         cat.rows[0].requires_user_key
       );
