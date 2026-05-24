@@ -49,7 +49,7 @@ export function coercePanelImageObjectFit(raw: unknown): PanelImageObjectFit {
 }
 
 /**
- * 显式 `panelContent` 优先；否则沿用原有规则（含 r2c2 默认地图等）。
+ * 显式 `panelContent` 优先；否则按 kind / chartKind / embedKind 推导。
  */
 export function getEffectivePanelContent(
   params: Record<string, unknown>,
@@ -70,17 +70,71 @@ export function getEffectivePanelContent(
   const kind = String(params.kind ?? "");
   const chartRaw = String(params.chartKind ?? "");
   const embedKind = String(params.embedKind ?? "");
-  if (kind === "tianditu" || kind === "map" || panelId === "r2c2") return "map";
+  if (kind === "tianditu" || kind === "map") return "map";
   if (isDockviewChartKind(chartRaw)) return "chart";
   if (embedKind === "table") return "table";
+  if (embedKind === "stats") return "stats";
+  if (embedKind === "mapControls") return "mapControls";
   if (embedKind === "image") return "image";
   if (embedKind === "time") return "time";
   return "none";
 }
 
+/** Tab / 抽屉展示用短标题（未手动设置 title 时） */
+export function getPanelTabDisplayTitle(
+  params: Record<string, unknown>,
+  panelId: string,
+  dockviewTitle?: string
+): string {
+  const manual = typeof params.title === "string" ? params.title.trim() : "";
+  if (manual) return manual;
+  const dock = typeof dockviewTitle === "string" ? dockviewTitle.trim() : "";
+  if (dock) return dock;
+
+  const eff = getEffectivePanelContent(params, panelId);
+  if (eff === "none") return "空面板";
+  if (eff === "map") return "地图";
+  if (eff === "mapControls") {
+    return coerceMapControlKind(params.mapControlKind) === "overview" ? "鹰眼" : "地图控件";
+  }
+  if (eff === "chart") {
+    const ck = String(params.chartKind ?? "bar");
+    if (ck === "pie") return "饼图";
+    if (ck === "line") return "折线图";
+    return "柱状图";
+  }
+  if (eff === "table") return "表格";
+  if (eff === "stats") return "统计值";
+  if (eff === "time") {
+    return coerceTimeDisplayMode(params.timeDisplayMode) === "dial" ? "表盘时钟" : "数字时钟";
+  }
+  if (eff === "image") return "图片";
+  return panelId || "面板";
+}
+
+/** 根据编辑抽屉所选类型生成 Tab 标题 */
+export function getPanelTabTitleForMode(
+  mode: PanelContentRadio,
+  chartKind?: DockviewChartKind
+): string {
+  if (mode === "auto") return "";
+  if (mode === "map") return "地图";
+  if (mode === "mapControls") return "地图控件";
+  if (mode === "chart") {
+    if (chartKind === "pie") return "饼图";
+    if (chartKind === "line") return "折线图";
+    return "柱状图";
+  }
+  if (mode === "table") return "表格";
+  if (mode === "stats") return "统计值";
+  if (mode === "time") return "数字时钟";
+  if (mode === "image") return "图片";
+  return "";
+}
+
 /**
  * Dockview `updateParameters` 会整体替换 parameters，因此始终基于当前参数做浅拷贝再改。
- * `auto`：仅移除 `panelContent`，恢复为按 kind / chartKind / embedKind / panelId 推导。
+ * `auto`：清空内容相关参数，面板恢复为空槽位。
  */
 export function coerceMapControlKind(raw: unknown): MapControlKind {
   return String(raw ?? "").toLowerCase() === "overview" ? "overview" : "layers";
@@ -105,8 +159,21 @@ export function mergePanelContentParams(
   const out: Record<string, unknown> = { ...base };
   if (mode === "auto") {
     delete out.panelContent;
+    delete out.kind;
+    delete out.chartKind;
+    delete out.embedKind;
+    delete out.imageUrl;
+    delete out.imageObjectFit;
+    delete out.tableLayerName;
+    delete out.tableFields;
+    delete out.statsLayerName;
+    delete out.statsFields;
+    delete out.timeDisplayMode;
     delete out.mapControlKind;
     delete out.linkedMapPanelId;
+    delete out.mapLayers;
+    delete out.mapCatalogId;
+    delete out.mapCatalogIds;
     return out;
   }
   out.panelContent = mode;

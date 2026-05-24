@@ -2,7 +2,7 @@ import type { InjectionKey } from "vue";
 import type { DockviewPanelApi } from "dockview-core";
 
 /**
- * 由右下角热区触发。
+ * 由 Tab 标题点击或空 panel「+」触发。
  * `getBusinessParams` 须从 Vue 侧读取当前业务 params：Dockview 的 `panelApi.getParameters()`
  * 在首次 update 前常为 `{}`，不能单独作为合并基准。
  */

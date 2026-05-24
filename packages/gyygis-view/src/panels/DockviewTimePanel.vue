@@ -83,9 +83,9 @@ function onBlockDockDrag(e: Event) {
 
 <style scoped>
 .timePanel {
-  margin-top: 10px;
   flex: 1;
   min-height: 0;
+  width: 100%;
   border-radius: var(--gyygis-panel-content-border-radius, 10px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);

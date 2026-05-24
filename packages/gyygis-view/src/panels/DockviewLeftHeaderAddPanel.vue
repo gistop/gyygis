@@ -15,6 +15,7 @@
 
 <script setup lang="ts">
 import type { IDockviewHeaderActionsProps } from "dockview-core";
+import { baseGridPanelAddOptions } from "@/dockviewPanelDefaults";
 
 const props = defineProps<{
   params: IDockviewHeaderActionsProps;
@@ -26,10 +27,7 @@ function onAdd() {
 
   const id = `panel_${Date.now()}`;
   containerApi.addPanel({
-    id,
-    component: "GridPanel",
-    title: "新面板",
-    params: { id, title: "新面板" },
+    ...baseGridPanelAddOptions(id),
     position: { referenceGroup: group }
   });
 }

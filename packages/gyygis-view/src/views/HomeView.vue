@@ -3,6 +3,7 @@
     <DockviewVue
       :theme="runtimeDockTheme"
       class="dockviewFill"
+      default-tab-component="DockviewPanelTab"
       left-header-actions-component="DockviewLeftHeaderAddPanel"
       @ready="onReady"
     />
@@ -152,7 +153,7 @@
           <el-radio-button value="stats">统计值</el-radio-button>
           <el-radio-button value="time">时间</el-radio-button>
           <el-radio-button value="image">图片</el-radio-button>
-          <el-radio-button value="auto">占位（自动）</el-radio-button>
+          <el-radio-button value="auto">空</el-radio-button>
         </el-radio-group>
         <template v-if="editPanelMode === 'chart'">
           <div class="panelEditForm__label">图表类型</div>
@@ -344,12 +345,14 @@
 import { DockviewVue } from "dockview-vue";
 import GridPanel from "@/panels/DockviewGridPanel.vue";
 import DockviewLeftHeaderAddPanel from "@/panels/DockviewLeftHeaderAddPanel.vue";
+import DockviewPanelTab from "@/panels/DockviewPanelTab.vue";
 
 export default {
   components: {
     DockviewVue,
     GridPanel,
-    DockviewLeftHeaderAddPanel
+    DockviewLeftHeaderAddPanel,
+    DockviewPanelTab
   }
 };
 </script>
@@ -374,6 +377,11 @@ import type {
 import { useDockviewThemeSettings } from "@/composables/useDockviewThemeSettings";
 import DockviewThemeSettings from "@/panels/DockviewThemeSettings.vue";
 import { PANEL_EDIT_INJECTION_KEY } from "@/panelEditInjection";
+import { DOCKVIEW_ACTIVE_THEME_KEY } from "@/panelTabThemeInjection";
+import {
+  baseGridPanelAddOptions,
+  patchSerializedLayoutTabComponents
+} from "@/dockviewPanelDefaults";
 import type { DockviewChartKind } from "@/charts/types";
 import { isDockviewChartKind } from "@/charts/types";
 import {
@@ -381,6 +389,7 @@ import {
   coercePanelImageObjectFit,
   coerceTimeDisplayMode,
   getEffectivePanelContent,
+  getPanelTabTitleForMode,
   mergePanelContentParams,
   type MapControlKind,
   type PanelContentRadio,
@@ -595,7 +604,9 @@ async function onRestoreLayout() {
   if (!api || id == null) return;
   userLayoutRestoring.value = true;
   try {
-    const layout = (await fetchUserLayoutById(id)) as SerializedDockview;
+    const layout = patchSerializedLayoutTabComponents(
+      (await fetchUserLayoutById(id)) as SerializedDockview
+    );
     api.clear();
     api.fromJSON(layout);
     await nextTickSetup();
@@ -614,7 +625,9 @@ async function tryAutoRestoreLayout(api: DockviewApi): Promise<boolean> {
   const last = readLastRestoredLayoutId();
   if (last != null) {
     try {
-      const layout = (await fetchUserLayoutById(last)) as SerializedDockview;
+      const layout = patchSerializedLayoutTabComponents(
+        (await fetchUserLayoutById(last)) as SerializedDockview
+      );
       api.clear();
       api.fromJSON(layout);
       await nextTickSetup();
@@ -631,7 +644,9 @@ async function tryAutoRestoreLayout(api: DockviewApi): Promise<boolean> {
     const list = await fetchUserLayouts();
     const def = list.find(x => x.isDefault);
     if (!def) return false;
-    const layout = (await fetchUserLayoutById(def.id)) as SerializedDockview;
+    const layout = patchSerializedLayoutTabComponents(
+      (await fetchUserLayoutById(def.id)) as SerializedDockview
+    );
     api.clear();
     api.fromJSON(layout);
     await nextTickSetup();
@@ -883,7 +898,11 @@ function applyPanelContentFromDrawer() {
     delete (next as Record<string, unknown>).mapCatalogIds;
     delete (next as Record<string, unknown>).mapCatalogId;
   }
+  // 标题仅写在 Dockview Tab（api.setTitle），不写入 params.title，避免内容区重复显示「数字时钟」等字样
+  (next as Record<string, unknown>).title = "";
+  const tabTitle = getPanelTabTitleForMode(editPanelMode.value, editChartKind.value);
   api.updateParameters(next);
+  api.setTitle(tabTitle);
 }
 
 function openPanelEditDrawer(
@@ -906,6 +925,7 @@ function openPanelEditDrawer(
 }
 
 provide(PANEL_EDIT_INJECTION_KEY, openPanelEditDrawer);
+provide(DOCKVIEW_ACTIVE_THEME_KEY, dockTheme);
 
 async function ensureTableLayersLoaded() {
   if (tableLayersLoading.value) return;
@@ -1158,7 +1178,7 @@ function onCornerPointerCancel() {
   clearCornerLongPressTimer();
 }
 
-/** 用 addPanel + position(referencePanel, direction) 构造 3 行 × 3 列（共 9 个 Panel）。 */
+/** 用 addPanel + position(referencePanel, direction) 构造 3 行 × 3 列（共 9 个 Panel），初始均为空槽位。 */
 function buildInitialDockviewGrid(api: DockviewApi) {
   const p11 = "r1c1";
   const p12 = "r1c2";
@@ -1170,63 +1190,39 @@ function buildInitialDockviewGrid(api: DockviewApi) {
   const p32 = "r3c2";
   const p33 = "r3c3";
 
-  api.addPanel({ id: p11, component: "GridPanel", title: "1-1", params: { id: p11, title: "1-1" } });
+  api.addPanel(baseGridPanelAddOptions(p11));
   api.addPanel({
-    id: p12,
-    component: "GridPanel",
-    title: "1-2（中列）",
-    params: { id: p12, title: "1-2（中列）" },
+    ...baseGridPanelAddOptions(p12),
     position: { referencePanel: p11, direction: "right", size: 520 } as any
   });
   api.addPanel({
-    id: p13,
-    component: "GridPanel",
-    title: "1-3",
-    params: { id: p13, title: "1-3" },
+    ...baseGridPanelAddOptions(p13),
     position: { referencePanel: p12, direction: "right" } as any
   });
 
   api.addPanel({
-    id: p21,
-    component: "GridPanel",
-    title: "2-1（中行）",
-    params: { id: p21, title: "2-1（中行）" },
+    ...baseGridPanelAddOptions(p21),
     position: { referencePanel: p11, direction: "below", size: 420 } as any
   });
   api.addPanel({
-    id: p22,
-    component: "GridPanel",
-    title: "2-2（中心更大）",
-    params: { id: p22, title: "2-2（中心更大）", kind: "tianditu" },
+    ...baseGridPanelAddOptions(p22),
     position: { referencePanel: p12, direction: "below", size: 420 } as any
   });
   api.addPanel({
-    id: p23,
-    component: "GridPanel",
-    title: "2-3（柱状图）",
-    params: { id: p23, title: "2-3（柱状图）", chartKind: "bar" },
+    ...baseGridPanelAddOptions(p23),
     position: { referencePanel: p13, direction: "below", size: 420 } as any
   });
 
   api.addPanel({
-    id: p31,
-    component: "GridPanel",
-    title: "3-1",
-    params: { id: p31, title: "3-1" },
+    ...baseGridPanelAddOptions(p31),
     position: { referencePanel: p21, direction: "below" } as any
   });
   api.addPanel({
-    id: p32,
-    component: "GridPanel",
-    title: "3-2（中列）",
-    params: { id: p32, title: "3-2（中列）" },
+    ...baseGridPanelAddOptions(p32),
     position: { referencePanel: p22, direction: "below" } as any
   });
   api.addPanel({
-    id: p33,
-    component: "GridPanel",
-    title: "3-3（表格）",
-    params: { id: p33, title: "3-3（表格）", embedKind: "table" },
+    ...baseGridPanelAddOptions(p33),
     position: { referencePanel: p23, direction: "below" } as any
   });
 }
@@ -1484,6 +1480,35 @@ onBeforeUnmountSetup(() => {
   min-height: var(--dv-tabs-and-actions-container-height, 35px);
 }
 
+/* 自定义 Tab：保证有足够宽度显示操作按钮 */
+.homeDockview .dv-tab .dv-default-tab {
+  min-width: 0;
+}
+
+.homeDockview .dv-tab .dv-vue-part:has(.gyygisPanelTab) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.homeDockview .dv-tabs-container .dv-tab {
+  min-width: 120px;
+  max-width: 100%;
+}
+
+.homeDockview .dv-tab:has(.gyygisPanelTab) {
+  overflow: visible;
+}
+
+.homeDockview .dv-tab .gyygisPanelTab {
+  overflow: visible;
+}
+
+/* 自定义 Tab：标题 + 操作按钮占满标签宽度 */
+.homeDockview .dv-tab .dv-vue-part {
+  min-width: 0;
+  flex: 1;
+}
+
 .gridPanel {
   box-sizing: border-box;
   height: 100%;
@@ -1496,36 +1521,63 @@ onBeforeUnmountSetup(() => {
   position: relative;
 }
 
-/* 左下角隐形热区：大屏保持干净，双击切换 Dockview 分组最大化 */
-.panelMaximizeHotspot {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 56px;
-  height: 56px;
-  z-index: 30;
-  background: transparent;
-  cursor: default;
-  pointer-events: auto;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
+
+.gridPanel--empty {
+  justify-content: stretch;
 }
 
-/* 右下角隐形热区：连点或长按打开本面板编辑抽屉（不依赖固定网格布局） */
-.panelEditHotspot {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 56px;
-  height: 56px;
-  z-index: 30;
-  background: transparent;
+.gridPanel__emptyAdd {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  box-sizing: border-box;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  border-radius: var(--gyygis-panel-content-border-radius, 10px);
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  opacity: 0.62;
+  font: inherit;
+  transition:
+    opacity 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.gridPanel__emptyAdd:hover {
+  opacity: 0.92;
+  border-color: rgba(0, 212, 255, 0.45);
+  background: rgba(0, 212, 255, 0.06);
+}
+
+.gridPanel__emptyAdd:focus-visible {
+  outline: 2px solid rgba(0, 212, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.gridPanel__emptyAdd--disabled {
   cursor: default;
-  pointer-events: auto;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
+  pointer-events: none;
+}
+
+.gridPanel__emptyAddIcon {
+  font-size: 48px;
+  line-height: 1;
+  font-weight: 200;
+  opacity: 0.9;
+}
+
+.gridPanel__emptyAddLabel {
+  font-size: 13px;
+  opacity: 0.78;
+  letter-spacing: 0.2px;
 }
 
 .gridPanel__header {
@@ -1544,12 +1596,6 @@ onBeforeUnmountSetup(() => {
 .gridPanel__meta {
   font-size: 12px;
   opacity: 0.75;
-}
-
-.gridPanel__body {
-  margin-top: 10px;
-  font-size: 12px;
-  opacity: 0.85;
 }
 
 .gridPanel__mapWrap {
