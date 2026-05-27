@@ -5,7 +5,7 @@
     @mousedown.stop="onBlockDockDrag"
     @touchstart.stop="onBlockDockDrag"
   >
-    <div v-if="errorMessage" class="tdtError">天地图加载失败：{{ errorMessage }}</div>
+    <div v-if="errorMessage" class="tdtError">地图加载失败：{{ errorMessage }}</div>
     <div v-else ref="mapEl" class="tdtMap" />
   </div>
 </template>
@@ -15,14 +15,13 @@ import { computed, onMounted, ref, watch } from "vue";
 import OlMap from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
-import type ImageTile from "ol/ImageTile";
-import XYZ from "ol/source/XYZ";
 import TileWMS from "ol/source/TileWMS";
 import { fromLonLat } from "ol/proj";
 import { useTiandituOlMap } from "@/composables/useTiandituOlMap";
 import { fetchBrowserTileConfig, fetchWebMapServices, type WebMapServiceRow } from "@/api/webMapServices";
 import { getUserIdFromAccessTokenJwt } from "@/utils/authorizedToken";
 import { prepareXyzUrlTemplateForOpenLayers } from "@/utils/xyzTileUrl";
+import { createOfflineFirstXyz } from "@/utils/offlineFirstXyz";
 import { registerOlMapForPanel, unregisterOlMapForPanel } from "@/mapPanelRegistry";
 import "ol/ol.css";
 
@@ -57,8 +56,8 @@ const props = withDefaults(
     panelId?: string;
   }>(),
   {
-    centerLon: 116.407526,
-    centerLat: 39.90403,
+    centerLon: 121.4737,
+    centerLat: 31.2304,
     zoom: 12,
     mapLayers: null,
     mapCatalogId: null,
@@ -185,24 +184,16 @@ async function mountCustom() {
           const urlTemplate = prepareXyzUrlTemplateForOpenLayers(serviceUrl, apiKey);
           const layer = new TileLayer({
             opacity: s.opacity,
-            source: new XYZ({
+            source: createOfflineFirstXyz({
               url: urlTemplate,
-              crossOrigin: "anonymous",
-              tileLoadFunction: (tile, src) => {
-                console.log("[tianditu browser xyz]", src);
-                const image = (tile as ImageTile).getImage() as HTMLImageElement;
-                if (image) {
-                  image.crossOrigin = "anonymous";
-                  image.src = src;
-                }
-              }
+              crossOrigin: "anonymous"
             })
           });
           layers.push(layer);
         } else {
           const layer = new TileLayer({
             opacity: s.opacity,
-            source: new XYZ({
+            source: createOfflineFirstXyz({
               url: `/api/web-map-services/tiles/${encodeURIComponent(String(s.catalogId))}?x={x}&y={y}&z={z}`
             })
           });

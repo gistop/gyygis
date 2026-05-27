@@ -3,8 +3,8 @@ import type OlMap from "ol/Map";
 import Map from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
-import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
+import { createOfflineFirstXyz } from "@/utils/offlineFirstXyz";
 export type TiandituOlMapOptions = {
   /** 经纬度 [lon, lat] */
   center?: readonly [number, number];
@@ -48,12 +48,12 @@ export function useTiandituOlMap(
 
     try {
       const imgLayer = new TileLayer({
-        source: new XYZ({
+        source: createOfflineFirstXyz({
           url: `/api/tianditu/img?x={x}&y={y}&l={z}`
         })
       });
       const imgLabelLayer = new TileLayer({
-        source: new XYZ({
+        source: createOfflineFirstXyz({
           url: `/api/tianditu/label?x={x}&y={y}&l={z}`
         })
       });

@@ -39,3 +39,7 @@ pnpm dev:view
 ```
 
 The user app defaults to port **5176** and proxies `/api` to the backend (see `packages/gyygis-view/.env.development`). Production build: `pnpm build:view`.
+
+### Offline map tiles (optional)
+
+Place downloaded XYZ tiles on the server filesystem as `{z}/{x}/{y}.png` (e.g. `15/27436/13395.png`). Set `OFFLINE_TILE_ROOT` in `packages/gyygis-server/.env` (or `deploy/.env` for Docker). The view loads `/api/offline-tiles/{z}/{x}/{y}.png` first, then falls back to online basemap when `MAP_ONLINE_POLICY` is `auto` or `on` (`off` for intranet-only).

@@ -68,6 +68,9 @@ services:
       dockerfile: deploy/Dockerfile.server
     env_file:
       - .env
+    # 离线 XYZ 瓦片（与 deploy/.env 中 OFFLINE_TILE_ROOT=/tiles/tdt 配合）：
+    volumes:
+      - /opt/gyygis/offline-tiles/tdt:/tiles/tdt:ro
     environment:
       PORT: "3000"
       POSTGRES_HOST: postgis

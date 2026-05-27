@@ -12,6 +12,9 @@ import {
   GYYGIS_GRID_PANEL_COMPONENT,
   GYYGIS_PANEL_TAB_COMPONENT
 } from "@/dockviewPanelDefaults";
+import { fetchMapBasemapConfigFromServer, probeMapOnlineOnce } from "@/utils/mapOnlineProbe";
+
+void fetchMapBasemapConfigFromServer().then(() => probeMapOnlineOnce());
 
 const app = createApp(App);
 app.component(GYYGIS_GRID_PANEL_COMPONENT, GridPanel);

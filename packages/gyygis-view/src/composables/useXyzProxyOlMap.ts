@@ -1,8 +1,8 @@
 import Map from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
-import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
+import { createOfflineFirstXyz } from "@/utils/offlineFirstXyz";
 import { nextTick, onBeforeUnmount, ref, type Ref } from "vue";
 
 export type XyzProxyOlMapOptions = {
@@ -41,7 +41,7 @@ export function useXyzProxyOlMap(
 
     try {
       const layer = new TileLayer({
-        source: new XYZ({
+        source: createOfflineFirstXyz({
           url: `/api/web-map-services/tiles/${encodeURIComponent(String(catalogId))}?x={x}&y={y}&z={z}`
         })
       });
