@@ -1,28 +1,29 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import type { Request, Response, NextFunction } from "express";
 import { Router } from "express";
 import { config } from "../config/index.js";
+import {
+  OFFLINE_TILE_SOURCE_TDT,
+  resolveOfflineTilePath
+} from "../services/offlineTileResolve.js";
 
 export const offlineTilesRouter = Router();
 
-const TILE_COORD = /^\d+$/;
-const TILE_EXT = /^(png|jpe?g|webp)$/i;
+/** 底图来源目录名（须以字母开头，避免与 z 层级数字混淆） */
+const SOURCE_SEGMENT = /^[a-zA-Z][\w-]*$/;
 
-function resolveTilePath(root: string, z: string, x: string, y: string, ext: string): string | null {
-  if (!TILE_COORD.test(z) || !TILE_COORD.test(x) || !TILE_COORD.test(y)) return null;
-  if (!TILE_EXT.test(ext)) return null;
-
-  const filePath = path.join(root, z, x, `${y}.${ext.toLowerCase() === "jpeg" ? "jpg" : ext.toLowerCase()}`);
-  const resolved = path.resolve(filePath);
-  const rootResolved = path.resolve(root);
-  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
-    return null;
-  }
-  return resolved;
+function sendTileFile(res: Response, filePath: string): void {
+  res.sendFile(filePath, err => {
+    if (err && !res.headersSent) {
+      res.status(404).send("瓦片不存在");
+    }
+  });
 }
 
-/** GET /api/offline-tiles/:z/:x/:y.png — 本地 XYZ 瓦片（{OFFLINE_TILE_ROOT}/{z}/{x}/{y}.png） */
-offlineTilesRouter.get("/:z/:x/:y.:ext", async (req, res) => {
+async function handleNamedSourceTile(
+  req: Request,
+  res: Response,
+  source: string
+): Promise<void> {
   const root = config.offlineTileRoot.trim();
   if (!root) {
     res.status(503).json({ error: "离线瓦片未配置（OFFLINE_TILE_ROOT）" });
@@ -34,20 +35,42 @@ offlineTilesRouter.get("/:z/:x/:y.:ext", async (req, res) => {
   const y = String(req.params.y ?? "");
   const ext = String(req.params.ext ?? "png");
 
-  const filePath = resolveTilePath(root, z, x, y, ext);
+  const filePath = await resolveOfflineTilePath(
+    root,
+    source,
+    z,
+    x,
+    y,
+    ext,
+    config.offlineTileRegionOrder
+  );
   if (!filePath) {
-    res.status(400).send("非法瓦片路径");
+    res.status(404).send("瓦片不存在");
     return;
   }
 
-  try {
-    await fs.access(filePath);
-    res.sendFile(filePath, err => {
-      if (err && !res.headersSent) {
-        res.status(404).send("瓦片不存在");
-      }
-    });
-  } catch {
-    res.status(404).send("瓦片不存在");
+  sendTileFile(res, filePath);
+}
+
+/**
+ * GET /api/offline-tiles/:source/:z/:x/:y.png — 指定来源（tdt、其它与 tdt 平级的目录名）
+ * 若 :source 为纯数字则交下一路由（天地图默认三段的 z）
+ */
+offlineTilesRouter.get(
+  "/:source/:z/:x/:y.:ext",
+  (req: Request, res: Response, next: NextFunction) => {
+    const source = String(req.params.source ?? "");
+    if (!SOURCE_SEGMENT.test(source)) {
+      next();
+      return;
+    }
+    void handleNamedSourceTile(req, res, source);
   }
+);
+
+/**
+ * GET /api/offline-tiles/:z/:x/:y.png — 天地图离线（source=tdt，兼容现有 view）
+ */
+offlineTilesRouter.get("/:z/:x/:y.:ext", async (req, res) => {
+  await handleNamedSourceTile(req, res, OFFLINE_TILE_SOURCE_TDT);
 });

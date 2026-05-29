@@ -13,6 +13,14 @@ function parseMapOnlinePolicy(raw: string): "off" | "auto" | "on" {
   return "auto";
 }
 
+function parseRegionOrder(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   port: Number.isFinite(port) && port > 0 ? port : 3000,
   nodeEnv: process.env.NODE_ENV ?? "development",
@@ -22,8 +30,14 @@ export const config = {
   tiandituBrowserClientMode: tiandituClientMode,
   /** true 时第三方地图瓦片仅允许使用用户自备 key（忽略管理员代填） */
   webMapTilesRequireUserKey,
-  /** 离线 XYZ 根目录，结构为 {root}/{z}/{x}/{y}.png */
+  /**
+   * 离线瓦片根目录。天地图在 {root}/tdt/ 下：
+   * - 扁平：tdt/{z}/{x}/{y}.png
+   * - 多地区包：tdt/{任意包名}/{z}/{x}/{y}.png（包名勿用纯数字）
+   */
   offlineTileRoot: process.env.OFFLINE_TILE_ROOT ?? "",
+  /** 可选：地区包查找顺序，逗号分隔；未列出的包排在后面 */
+  offlineTileRegionOrder: parseRegionOrder(process.env.OFFLINE_TILE_REGION_ORDER),
   /** 在线底图补洞策略：off=仅离线；auto=探测天地图；on=离线缺失时始终尝试在线 */
   mapOnlinePolicy: parseMapOnlinePolicy(process.env.MAP_ONLINE_POLICY ?? "auto"),
 } as const;

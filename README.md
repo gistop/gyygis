@@ -42,4 +42,13 @@ The user app defaults to port **5176** and proxies `/api` to the backend (see `p
 
 ### Offline map tiles (optional)
 
-Place downloaded XYZ tiles on the server filesystem as `{z}/{x}/{y}.png` (e.g. `15/27436/13395.png`). Set `OFFLINE_TILE_ROOT` in `packages/gyygis-server/.env` (or `deploy/.env` for Docker). The view loads `/api/offline-tiles/{z}/{x}/{y}.png` first, then falls back to online basemap when `MAP_ONLINE_POLICY` is `auto` or `on` (`off` for intranet-only).
+Tianditu (天地图) offline packs live under a **`tdt`** folder (other basemap sources can use sibling folders later). Set `OFFLINE_TILE_ROOT` in `packages/gyygis-server/.env` or `deploy/.env` (e.g. `/tiles` with packs at `/tiles/tdt/...`, or point directly at `/tiles/tdt`).
+
+Layouts (both supported; do not name region packs with digits-only names like `7`):
+
+- **Flat:** `{OFFLINE_TILE_ROOT or .../tdt}/{z}/{x}/{y}.png`
+- **Regional packs (no merge):** `{.../tdt}/{pack-name}/{z}/{x}/{y}.png` — add/remove a city by copying or deleting `pack-name`
+
+Optional `OFFLINE_TILE_REGION_ORDER=pack-a,pack-b` controls search order when a tile exists in multiple packs.
+
+The view requests `/api/offline-tiles/{z}/{x}/{y}.png` (Tianditu / `tdt`) first, then may fall back to online when `MAP_ONLINE_POLICY` is `auto` or `on`.
